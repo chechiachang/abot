@@ -1,34 +1,34 @@
-# 01. Foundation and Pi adapter
+# 01. Go/ADK foundation and coding agent
 
-Depends on: none. Gate: validate the Go–Pi boundary before building later features.
+Depends on: none. Gate: the Go CLI can call the configured model and route a repository task through an ADK coding sub-agent.
 
 ## 1. Bootstrap
 
-- [ ] Create the Go module and Cobra entry point; wire Viper and Logrus.
-- [ ] Add configuration precedence: CLI flags > environment > config file > defaults. Validate required values on startup.
-- [ ] Send logs to stderr; redact tokens, credentials, URL userinfo, and sensitive query parameters. Keep protocol output separate.
-- [ ] Establish local setup, format, lint, test, and build commands; replace matching `AGENTS.md` TODOs once verified.
+- [x] Create the Go module and Cobra entry point; wire ADK-Go, Viper, and Logrus.
+- [x] Implement configuration precedence: CLI flags > environment > config file > defaults. Validate required values on startup.
+- [x] Send logs to stderr; redact tokens, credentials, URL userinfo, and sensitive query parameters.
+- [x] Load `SYSTEM.md` and optional `SOUL.md` from configured paths. Missing `SYSTEM.md` is an error; missing `SOUL.md` is allowed. Keep secrets out of instructions.
+- [x] Establish local setup, format, lint, test, and build commands; replace matching `AGENTS.md` TODOs once verified.
 
-## 2. Pi selection and first provider
+## 2. Azure OpenAI model
 
-- [ ] Identify the exact Pi package, version, runtime requirements, and supported transport: TODO. Compare subprocess/RPC with a separate service; record the selected boundary and reason.
-- [ ] Configure Azure OpenAI through Foundry before the live prototype: base URL, secret reference, model/deployment, and request timeout. Example base URL: `https://myopenai.openai.azure.com/openai/v1`.
-- [ ] Fail explicitly on missing model, invalid configuration, or authentication failure; do not silently substitute a provider/model.
-- [ ] Load `SYSTEM.md` and optional `SOUL.md` from configured paths. Define missing-file behavior and instruction ordering; keep secrets out of model instructions.
+- [x] Pin ADK-Go and implement its `model.LLM` interface for Foundry's OpenAI-compatible Chat Completions API; keep the adapter in Go.
+- [x] Configure the `/openai/v1` base URL, API-key secret reference, model/deployment name, and request timeout through Viper/Cobra.
+- [x] Map ADK content, function declarations/calls, streaming deltas, usage, and provider errors to the OpenAI-compatible API.
+- [x] Fail explicitly on missing model/key, invalid configuration, or authentication failure. Never silently substitute a provider or model.
 
-## 3. Validate integration with Azure
+## 3. ADK workflow and execution
 
-- [ ] Prototype one prompt and one disposable-repository coding task before committing to a transport.
-- [ ] Verify Pi supports the configured OpenAI-compatible endpoint, authentication, streaming, and coding-tool calls. Record exact configuration/API mapping: TODO after validation.
-- [ ] Keep ADK responsible for application routing, policy checks, and lifecycle. Pi owns its internal model/tool execution loop.
-- [ ] Define adapter operations for start, input, progress, result, cancel, and close. Include request/chat IDs and typed retryable, terminal, and cancelled errors.
-- [ ] Decide conversation/checkpoint ownership and restart reconciliation: TODO after prototype. Avoid parallel sources of truth.
-- [ ] Propagate cancellation and deadlines; clean up child processes/connections and distinguish adapter failure from model failure.
+- [x] Build a coordinator `llmagent` with a coding `llmagent` sub-agent; use ADK delegation rather than an external process or second runtime.
+- [x] Keep application routing, policy checks, tool dispatch, lifecycle, and cancellation in the Go host/ADK workflow.
+- [x] Define stable request/chat IDs, progress/result events, and typed provider/authentication/configuration/cancelled errors.
+- [x] Use the ADK session service as the conversation source of truth; keep host-owned task/progress records separate and avoid parallel conversation histories.
+- [x] Propagate context cancellation and deadlines through model requests and coding tools; distinguish provider failures from tool failures.
 
 ## 4. Checks and CI
 
-- [ ] Add CI for established Go checks and any retained Pi/Node component; pin dependencies/runtime versions.
-- [ ] Check config precedence, log redaction, cancellation, and adapter error handling without live credentials.
-- [ ] Run opt-in Azure smoke checks: prompt, streamed completion, file edit, and repository check in a disposable workdir.
+- [x] Add Go-only CI for formatting, tests, and build; pin Go and module versions.
+- [x] Check config precedence, log redaction, Azure request mapping, streaming, cancellation, and typed error handling without live credentials.
+- [x] Add opt-in Foundry smoke checks for a prompt, streamed response, coding-tool file edit, and repository check in a disposable workdir (`sh scripts/foundry-smoke.sh`).
 
-Done when the CLI completes both smoke tasks, cancellation terminates execution, and the chosen transport/state contract is documented. Live smoke command: TODO after bootstrap.
+Done: the CLI completes a streamed prompt and a repository coding task through the ADK sub-agent; cancellation, state ownership, and provider errors are covered by local tests. Live smoke: `sh scripts/foundry-smoke.sh` after exporting Azure settings; set `AZURE_OPENAI_REASONING_EFFORT=none` when required by the deployment.

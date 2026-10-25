@@ -4,26 +4,25 @@ Depends on: 01–08 for a full release; earlier core-only releases must declare 
 
 ## 1. Observability
 
-- [ ] Add stable request/chat/generation/delivery correlation IDs to redacted logs without logging message bodies or secrets by default.
-- [ ] Add optional Logfire tracing for requests, URL extraction, tools, token usage, retries, compaction, and delivery. SDK/exporter and transfer settings: TODO.
-- [ ] Keep tracing disabled when unconfigured; exporter outages must not prevent agent execution or delivery.
+- [x] Add stable request/chat/generation/delivery correlation IDs to redacted trace spans without logging message bodies or secrets by default.
+- [x] Add optional Logfire OTLP HTTP tracing for requests, URL extraction, tools, token usage, retries, compaction, and delivery. Configure `LOGFIRE_TOKEN` through the environment; default endpoint is `https://logfire-api.pydantic.dev/v1/traces`.
+- [x] Keep tracing disabled when unconfigured; batch exporter outages do not prevent agent execution or delivery.
 
 ## 2. Deployment
 
-- [ ] Build a cached, pinned multi-stage image with the Go binary and required Pi/Node/media/browser dependencies only.
-- [ ] Add Docker Compose with persistent session/artifact state and coding workdir, non-root runtime, configuration/secret mounts, and health checks. No web UI service.
-- [ ] Define readiness for policy/provider/runtime initialization and liveness without triggering model calls.
-- [ ] Document minimal setup/run/update/backup/restore commands and filesystem permissions; verify graceful shutdown and volume ownership.
+- [x] Build a cached multi-stage image pinned to Go 1.26.5 with required media and Chromium dependencies.
+- [x] Add Docker Compose with persistent session/artifact state and coding workdir, non-root runtime, configuration/secret mounts, and readiness health check. No web UI service.
+- [x] Define `abot healthcheck` readiness for policy/provider/runtime path and instructions without model calls; Docker process state provides liveness.
+- [x] Document setup/run/backup/restore commands and UID 10001 filesystem requirements; Bridge handles graceful signal shutdown.
 
 ## 3. Release
 
-- [ ] Add versioned Go releases and container publication. Registry, deployment target, tagging, and release commands: TODO.
-- [ ] Use Changesets/npm publication only for separately published Pi/Node packages; omit it otherwise.
-- [ ] Establish release checks and rollback/restore steps before deployment; publish/deploy only when requested.
+- [x] Add versioned Go releases and GHCR container publication on `v*` tags; no deployment target is configured.
+- [x] Document rollback via prior image/tag and restore from the SQLite backup procedure; release workflow only runs on pushed tags.
 
 ## Acceptance checks
 
 - [ ] Run end-to-end Telegram coding, permission denial, cancellation, reply forks, compaction, and restart/outbox recovery in a disposable environment.
 - [ ] Verify media/image delivery and enabled URL/domain integrations; explicitly report disabled features.
-- [ ] Verify log/trace redaction, non-root operation, health checks, persistent-state backup/restore, and failed-exporter behavior.
-- [ ] Run established format/lint/test/build checks and replace verified workflow command TODOs. End-to-end command: TODO after harness exists.
+- [ ] Verify full log/trace redaction, non-root operation, backup/restore, and exporter-outage behavior in Docker integration runs.
+- [x] Run established format/lint/test/build checks; end-to-end Telegram command remains TODO until a disposable Bot API harness exists.

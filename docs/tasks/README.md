@@ -4,7 +4,7 @@ Source: [plan](../plan.md). Implement files and their sections in order; checkbo
 
 | Order | Task | Depends on |
 | --- | --- | --- |
-| 01 | [Foundation and Pi adapter](01-foundation.md) | None |
+| 01 | [Go/ADK foundation and coding agent](01-foundation.md) | None |
 | 02 | [Administration and authorization](02-administration.md) | 01 |
 | 03 | [Durable coding runtime](03-runtime.md) | 01–02 |
 | 04 | [Telegram bridge and delivery](04-telegram.md) | 01–03 |
