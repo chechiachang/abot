@@ -29,3 +29,14 @@ go run ./cmd/abot --config config.yaml telegram serve
 ```
 
 Telegram access is deny-by-default. See `go run ./cmd/abot --help` for other commands. For Docker Compose, run `docker compose up --build`.
+
+## GitHub writes
+
+The coding shell can use `gh` and Git to push changes and open PRs. For local runs, install `gh` and authenticate as the OS user running abot:
+
+```sh
+gh auth login --hostname github.com --git-protocol https --with-token < /secure/path/to/pat-file
+gh auth setup-git
+```
+
+Use a fine-grained PAT limited to the target repository with **Contents: Read and write** and **Pull requests: Read and write**. Keep the temporary PAT file outside the workspace and remove it after login; `gh` stores credentials for that OS user. The coding shell can access those credentials. The Docker image does not include `gh`.
