@@ -2,6 +2,8 @@ name: Go
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 jobs:
@@ -15,7 +17,7 @@ jobs:
           cache: true
       - name: Check formatting
         run: |
-          files=$(rg --files -g '*.go' cmd internal)
+          files=$(git ls-files '*.go')
           test -z "$(gofmt -l $files)"
       - run: go vet ./...
       - run: go test ./...

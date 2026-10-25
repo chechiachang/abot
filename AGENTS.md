@@ -18,10 +18,11 @@
 
 ## Commands
 
-- Setup: TODO
-- Run locally: TODO
-- Format: TODO
-- Lint: TODO
-- Test: TODO
-- Build: TODO
-- Release/deploy: TODO
+- Setup: `go mod download`
+- Run locally: `go run ./cmd/abot chat "<prompt>"` (loads `.env` automatically; requires Azure OpenAI configuration)
+- Format: `gofmt -w cmd internal`
+- Lint: `go vet ./...`
+- Test: `go test ./...`
+- Build: `go build -o /tmp/abot ./cmd/abot`
+- Container: `docker compose up --build`
+- Release: push a `v*` tag to publish Go archives and the GHCR image; deployment is not configured.
