@@ -31,3 +31,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+/abot
+/bin/
+/.env.*
+!/.env.example
+/config.yaml

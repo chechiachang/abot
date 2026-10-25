@@ -1,0 +1,22 @@
+name: Go
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: |
+          files=$(rg --files -g '*.go' cmd internal)
+          test -z "$(gofmt -l $files)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build -o /tmp/abot ./cmd/abot
