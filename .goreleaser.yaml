@@ -1,0 +1,16 @@
+version: 2
+builds:
+  - id: abot
+    main: ./cmd/abot
+    binary: abot
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/chechiachang/abot/internal/cli.version={{ .Version }}
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: checksums.txt

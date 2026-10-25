@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+data
+coverage.*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+abot
+bin
