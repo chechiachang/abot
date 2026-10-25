@@ -22,17 +22,19 @@ Implement the capabilities listed below without a web UI or browser-specific adm
 
 ## Implementation order
 
+Detailed tasks: [implementation index](tasks/README.md). Follow the numbered files in order.
+
 ### 1. Go foundation and Pi adapter
 
 - [ ] Set up Go ADK, Cobra commands, Viper configuration, and Logrus secret/URL-redacted stderr logging.
-- [ ] Validate the Go–Pi boundary with one prompt and one repository coding task; define execution events, cancellation, state ownership, and error contracts.
-- [ ] Validate the first provider: Azure OpenAI through Foundry, with configurable OpenAI-compatible base URL, credentials, and model/deployment name; verify prompt and coding-tool execution.
+- [ ] Select the Pi package/transport candidate and configure Azure OpenAI through Foundry with an OpenAI-compatible base URL, credentials, and model/deployment name before live validation.
+- [ ] Validate the Go–Pi boundary using Azure with one prompt and one repository coding task; verify provider/tool compatibility and define execution events, cancellation, state ownership, and error contracts.
 - [ ] Load file-based system instructions and persona (`SYSTEM.md` / `SOUL.md`).
 - [ ] Establish CI checks for Go and any retained Pi/Node components.
 
 ### 2. Headless administration and authorization
 
-- [ ] Implement deny-by-default private-user, group, and channel grants; administrator identity alone does not grant chat access.
+- [ ] Start with deny-by-default `telegram.allowed_user_ids` and one `telegram.default_group_id`; private requests require an allowed sender, group requests require both. Administrator identity does not bypass these checks. Add private-user/group/channel grants later.
 - [ ] Implement global capability limits, shared defaults, and per-chat overrides for tools, models, skills, and MCP access.
 - [ ] Configure provider API keys/OAuth, model availability, explicit default/chat models, and thinking levels; never silently fall back on missing selections.
 - [ ] Support Azure OpenAI through Foundry first; expose its base URL, credentials, and model/deployment selection through Viper configuration and Cobra commands. Add other providers afterward.
@@ -50,13 +52,13 @@ Implement the capabilities listed below without a web UI or browser-specific adm
 
 ### 4. Telegram bridge and reliable delivery
 
-- [ ] Route private chats and group mentions/replies; store unaddressed group messages as passive context without starting an agent turn.
+- [ ] Enforce the user-ID allowlist in private chats and the single configured group. Route group mentions/replies; store only allowed users' unaddressed messages in that group as passive context without starting an agent turn.
 - [ ] Add `/start`, `/help`, `/id`, `/cancel`, and `/reset`.
 - [ ] Add `/allow` access requests approved through the administrator CLI instead of web approval links.
 - [ ] Implement polling retries, rate-limit handling, fatal token/competing-poller detection, and startup/shutdown administrator notifications.
 - [ ] Implement Telegram HTML rendering and Morsel publication for output above 1,000 characters, without splitting; require a Morsel key for long output.
 - [ ] Render live model/tool activity and multi-step progress; retain completed progress beside the final answer.
-- [ ] Add durable response outbox and restart delivery recovery. Track at-least-once delivery; do not automatically replay interrupted side-effecting tools.
+- [ ] Add durable response outbox and restart recovery for persisted outbox entries. Track at-least-once delivery; do not automatically replay interrupted side-effecting tools. Accept unrecoverable pre-turn and result-to-outbox crash gaps for now; inbox recovery and atomic result handoff are deferred.
 - [ ] Map replies to earlier completed answers to durable branch checkpoints and fork the conversation.
 
 ### 5. Tool orchestration and MCP
