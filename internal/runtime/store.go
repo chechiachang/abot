@@ -93,6 +93,12 @@ func open(path string, readOnly, exclusive, migrate, recover bool) (*Store, erro
 			sqlDB.Close()
 			return nil, fmt.Errorf("enable SQLite WAL: %w", err)
 		}
+		for _, index := range []string{"idx_runtime_telegram_outbox_telegram_message_id", "idx_runtime_outbox_chat_message"} {
+			if err := db.Exec("DROP INDEX IF EXISTS " + index).Error; err != nil {
+				sqlDB.Close()
+				return nil, fmt.Errorf("migrate Telegram outbox message index: %w", err)
+			}
+		}
 		if err := db.AutoMigrate(&Branch{}, &BranchRevision{}, &Task{}, &TaskRecord{}, &ProgressStep{}, &ImportRun{}, &QueuedInput{}, &Attachment{}, &TelegramUpdate{}, &RuntimeValue{}, &PassiveMessage{}, &Outbox{}, &AccessRequest{}, &Conversation{}); err != nil {
 			sqlDB.Close()
 			return nil, fmt.Errorf("migrate runtime metadata schema: %w", err)

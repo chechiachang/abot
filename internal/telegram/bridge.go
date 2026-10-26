@@ -59,6 +59,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 		return fmt.Errorf("initialize Telegram bot: %w", err)
 	}
 	b.username = me.Username
+	b.logInfo("Telegram bot connected", logrus.Fields{"bot_username": me.Username})
 	b.workers = make(map[string]chan struct{})
 	if err := b.expireAttachments(ctx); err != nil {
 		return err
@@ -77,6 +78,10 @@ func (b *Bridge) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	b.logInfo("Telegram polling started", logrus.Fields{"update_offset": offset})
+	defer func() {
+		b.logInfo("Telegram polling stopped", logrus.Fields{"update_offset": offset})
+	}()
 	attempt := 0
 	for ctx.Err() == nil {
 		updates, err := b.Client.GetUpdates(ctx, offset, 30)
@@ -86,13 +91,15 @@ func (b *Bridge) Run(ctx context.Context) error {
 			}
 			delay, retry := retryDelay(err, attempt)
 			if !retry {
-				b.logError("Telegram polling stopped after a fatal Bot API error")
+				b.logErrorFields("Telegram polling stopped after a fatal Bot API error", logrus.Fields{"retry_attempt": attempt + 1, "error": err})
 				b.notifyAdmin(ctx, "abot Telegram polling stopped; check the bot token and active poller")
 				return fmt.Errorf("fatal Telegram polling error: %w", err)
 			}
 			attempt++
 			span.AddEvent("telegram.poll.retry", trace.WithAttributes(attribute.Int("retry.attempt", attempt)))
-			b.logWarn("Telegram polling failed; retrying")
+			b.logWarnFields("Telegram polling failed; retrying", logrus.Fields{
+				"retry_attempt": attempt, "retry_delay_ms": delay.Milliseconds(), "error": err,
+			})
 			if !wait(ctx, delay) {
 				return nil
 			}
@@ -112,14 +119,18 @@ func (b *Bridge) Run(ctx context.Context) error {
 			}
 			accepted, err := b.State.RecordTelegramUpdate(ctx, update.UpdateID, chatID, "received")
 			if err != nil {
+				b.logErrorFields("Telegram update could not be recorded", logrus.Fields{"update_id": update.UpdateID, "chat_id": chatID, "error": err})
 				return err
 			}
 			offset = max(offset, update.UpdateID+1)
 			if !accepted {
 				continue
 			}
+			b.logDebug("received Telegram bot event", telegramUpdateFields(update))
 			if err := b.handleUpdate(ctx, update); err != nil {
-				b.logWarn("Telegram update was recorded but could not be handled")
+				fields := telegramUpdateFields(update)
+				fields["error"] = err
+				b.logWarnFields("Telegram update was recorded but could not be handled", fields)
 			}
 		}
 	}
@@ -235,6 +246,10 @@ func (b *Bridge) handleUpdate(ctx context.Context, update Update) error {
 		_ = b.sendText(ctx, chatID, "I couldn't authorize or queue those attachments for this chat.", message.MessageID, branchID, "")
 		return nil
 	}
+	b.logInfo("queued Telegram turn", logrus.Fields{
+		"chat_id": chatID, "user_id": senderID, "branch_id": branchID, "generation_id": input.ID,
+		"input_kind": input.Kind, "attachment_count": len(attachmentIDs), "reply_to_message_id": replyTo,
+	})
 	if b.Engine.Turns.Active(chatKey, branchID) {
 		_ = b.sendText(ctx, chatID, "Queued; I’ll handle this after the current turn.", message.MessageID, branchID, "")
 	}
@@ -260,6 +275,7 @@ func (b *Bridge) indexChannelPost(ctx context.Context, post *Message) error {
 func (b *Bridge) handleCommand(ctx context.Context, update Update, message *Message, senderID int64, command string, args []string) (bool, error) {
 	chatID, chatKey := message.Chat.ID, strconv.FormatInt(message.Chat.ID, 10)
 	reply := message.MessageID
+	b.logInfo("handling Telegram command", logrus.Fields{"command": command, "chat_id": chatID, "user_id": senderID})
 	switch command {
 	case "start", "help":
 		return true, b.sendText(ctx, chatID, "Send a message to chat. In the configured group, mention or reply to me. Use /t <symbol> for quotes, /f for an article, /id for IDs, and /allow to request access.", reply, "", "")
@@ -319,10 +335,14 @@ func (b *Bridge) handleCommand(ctx context.Context, update Update, message *Mess
 		}
 		quote, err := b.Quotes.Read(ctx, fields[0])
 		if err != nil {
+			logFields := logrus.Fields{"chat_id": chatID, "user_id": senderID, "symbol": fields[0], "error": err}
 			var quoteErr *quotes.Error
 			if errors.As(err, &quoteErr) {
+				logFields["error_category"] = quoteErr.Category
+				b.logWarnFields("Telegram quote lookup failed", logFields)
 				return true, b.sendText(ctx, chatID, "Quote unavailable ("+quoteErr.Category+"): "+quoteErr.Message, reply, "", "")
 			}
+			b.logWarnFields("Telegram quote lookup failed", logFields)
 			return true, b.sendText(ctx, chatID, "Quote lookup failed.", reply, "", "")
 		}
 		return true, b.sendText(ctx, chatID, quote.String(), reply, "", "")
@@ -394,6 +414,7 @@ func (b *Bridge) resumeQueued(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	b.logInfo("resuming queued Telegram turns", logrus.Fields{"queued_count": len(inputs)})
 	for _, input := range inputs {
 		b.signalWorker(input.ChatID, input.BranchID, ctx)
 	}
@@ -405,7 +426,7 @@ func (b *Bridge) worker(ctx context.Context, chatKey, branchID string, wake <-ch
 		inputs, err := b.State.ClaimInputs(ctx, chatKey, branchID, 1)
 		if err != nil {
 			if ctx.Err() == nil {
-				b.logWarn("failed to claim queued Telegram messages")
+				b.logWarnFields("failed to claim queued Telegram messages", logrus.Fields{"chat_id": chatKey, "branch_id": branchID, "error": err})
 			}
 			b.workersMu.Lock()
 			if b.workers[turnWorkerKey(chatKey, branchID)] == nil || b.workers[turnWorkerKey(chatKey, branchID)] == wake {
@@ -436,6 +457,9 @@ func (b *Bridge) worker(ctx context.Context, chatKey, branchID string, wake <-ch
 
 func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	chatID, _ := strconv.ParseInt(input.ChatID, 10, 64)
+	startedAt := time.Now()
+	fields := logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID, "input_kind": input.Kind}
+	b.logInfo("processing queued Telegram turn", fields)
 	statusMessageID, _ := b.sendOutbox(ctx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, Payload: "Working…", ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
 	prompt := input.Text
 	if chatID < 0 {
@@ -450,6 +474,15 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	}
 	prompt, mediaParts, err := b.attachmentInput(ctx, input, prompt)
 	if err != nil {
+		fields := logrus.Fields{
+			"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID,
+			"input_kind": input.Kind, "error": err,
+		}
+		var mediaErr *media.Error
+		if errors.As(err, &mediaErr) {
+			fields["media_error_code"] = mediaErr.Code
+		}
+		b.logWarnFields("Telegram attachment processing failed", fields)
 		_ = b.State.CompleteInput(context.Background(), input.ID, "media_error")
 		reporter := &activityReporter{bridge: b, chatID: chatID, messageID: statusMessageID}
 		reporter.Finish("Attachment processing failed.")
@@ -459,11 +492,16 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	if input.Kind == agentruntime.InputArticle {
 		prompt, err = b.readArticleSources(ctx, input, prompt)
 		if err != nil {
+			fields := logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID, "error": err}
+			var sourceErr *urls.Error
+			if errors.As(err, &sourceErr) && sourceErr.Category != "" {
+				fields["error_category"] = sourceErr.Category
+			}
+			b.logWarnFields("Telegram article sources could not be read", fields)
 			_ = b.State.CompleteInput(context.Background(), input.ID, "article_source_error")
 			reporter := &activityReporter{bridge: b, chatID: chatID, messageID: statusMessageID}
 			reporter.Finish("A required source could not be read; nothing was published.")
 			text := "I couldn't read a required source, so I didn't generate or publish a partial article."
-			var sourceErr *urls.Error
 			if errors.As(err, &sourceErr) && sourceErr.Category != "" {
 				text += " Category: " + sourceErr.Category + ". " + sourceErr.Message
 			}
@@ -487,11 +525,20 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		sendCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		_ = b.sendText(sendCtx, chatID, text, input.ReplyToMessageID, input.BranchID, "")
 		cancel()
-		b.logWarnInput("Telegram agent turn failed; inspect durable task status", input)
+		b.logWarnFields("Telegram agent turn failed; inspect durable task status", logrus.Fields{
+			"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID,
+			"error_kind": failureKind, "error": err,
+		})
 		return
 	}
+	completedFields := logrus.Fields{
+		"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID,
+		"event_id": result.EventID, "duration_ms": time.Since(startedAt).Milliseconds(),
+	}
+	b.logInfo("Telegram agent turn completed", completedFields)
 	if input.PublishMorsel {
 		if b.Publisher == nil {
+			b.logWarnFields("article generated but Morsel publishing is not configured", logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID})
 			_ = b.State.CompleteInput(context.Background(), input.ID, "morsel_unconfigured")
 			reporter.Finish("Article generated, but publishing is not configured.")
 			_ = b.sendText(ctx, chatID, "The article was generated, but Morsel publishing is not configured.", input.ReplyToMessageID, input.BranchID, "")
@@ -499,6 +546,7 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		}
 		link, publishErr := b.Publisher.Publish(ctx, input.PublishTitle, result.Text)
 		if publishErr != nil {
+			b.logWarnFields("Morsel article publishing failed", logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID, "error": publishErr})
 			_ = b.State.CompleteInput(context.Background(), input.ID, "morsel_publish_error")
 			reporter.Finish("Article generated, but publishing failed.")
 			_ = b.sendText(ctx, chatID, "The article was generated, but publishing failed. No article link is available.", input.ReplyToMessageID, input.BranchID, "")
@@ -506,6 +554,7 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		}
 		payload, linkErr := PublishedLink(link)
 		if linkErr != nil {
+			b.logWarnFields("Morsel returned an invalid article link", logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID, "error": linkErr})
 			_ = b.State.CompleteInput(context.Background(), input.ID, "morsel_invalid_link")
 			reporter.Finish("Article generated, but the publisher returned an invalid link.")
 			_ = b.sendText(ctx, chatID, "The article was sent to Morsel, but it returned an invalid link.", input.ReplyToMessageID, input.BranchID, "")
@@ -517,11 +566,11 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		defer cancel()
 		item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
 		if err != nil {
-			b.logWarnInput("published article link could not be persisted to the Telegram outbox", input)
+			b.logWarnInput("published article link could not be persisted to the Telegram outbox", input, err)
 			return
 		}
 		if _, err := b.deliverOne(ctx, item); err != nil {
-			b.logWarnInput("published article link remains in the Telegram outbox", input)
+			b.logWarnInput("published article link remains in the Telegram outbox", input, err)
 		}
 		return
 	}
@@ -547,11 +596,11 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	defer cancel()
 	item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: parseMode, ReplyToMessageID: input.ReplyToMessageID})
 	if err != nil {
-		b.logWarnInput("agent response could not be persisted to the Telegram outbox", input)
+		b.logWarnInput("agent response could not be persisted to the Telegram outbox", input, err)
 		return
 	}
 	if _, err := b.deliverOne(ctx, item); err != nil {
-		b.logWarnInput("agent response remains in the Telegram outbox", input)
+		b.logWarnInput("agent response remains in the Telegram outbox", input, err)
 	}
 }
 
@@ -644,7 +693,7 @@ func (b *Bridge) outboxPump(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := b.deliverPending(ctx); err != nil && ctx.Err() == nil {
-				b.logWarn("one or more Telegram outbox deliveries remain pending")
+				b.logWarnFields("one or more Telegram outbox deliveries remain pending", logrus.Fields{"error": err})
 			}
 		}
 	}
@@ -670,6 +719,10 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 			span.SetStatus(codes.Error, "delivery record could not be completed")
 			return 0, err
 		}
+		b.logInfo("Telegram message delivered", logrus.Fields{
+			"chat_id": item.ChatID, "delivery_id": item.ID, "message_id": sent.MessageID,
+			"branch_id": item.BranchID, "reply_to_message_id": item.ReplyToMessageID,
+		})
 		return sent.MessageID, nil
 	}
 	delay, retry := retryDelay(err, item.Attempts)
@@ -685,6 +738,16 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 	}
 	if saveErr := b.State.FailDelivery(context.Background(), item.ID, "telegram_delivery", retryAt); saveErr != nil {
 		err = errors.Join(err, saveErr)
+	}
+	fields := logrus.Fields{
+		"chat_id": item.ChatID, "delivery_id": item.ID, "attempt": item.Attempts + 1,
+		"retry": retry, "error": err,
+	}
+	if retry {
+		fields["retry_delay_ms"] = delay.Milliseconds()
+		b.logWarnFields("Telegram message delivery failed; retry scheduled", fields)
+	} else {
+		b.logErrorFields("Telegram message delivery failed permanently", fields)
 	}
 	return 0, err
 }
@@ -702,22 +765,57 @@ func (b *Bridge) policy() (policy.Policy, error) {
 	return b.Config.EffectivePolicy(), nil
 }
 
-func (b *Bridge) logWarn(message string) {
+func (b *Bridge) logWarnFields(message string, fields logrus.Fields) {
 	if b.Logger != nil {
-		b.Logger.Warn(message)
+		b.Logger.WithFields(fields).Warn(message)
 	}
 }
 
-func (b *Bridge) logWarnInput(message string, input agentruntime.QueuedInput) {
+func (b *Bridge) logInfo(message string, fields logrus.Fields) {
 	if b.Logger != nil {
-		b.Logger.WithFields(logrus.Fields{"chat_id": input.ChatID, "branch_id": input.BranchID, "generation_id": input.ID}).Warn(message)
+		b.Logger.WithFields(fields).Info(message)
 	}
 }
 
-func (b *Bridge) logError(message string) {
+func (b *Bridge) logDebug(message string, fields logrus.Fields) {
 	if b.Logger != nil {
-		b.Logger.Error(message)
+		b.Logger.WithFields(fields).Debug(message)
 	}
+}
+
+func (b *Bridge) logWarnInput(message string, input agentruntime.QueuedInput, err error) {
+	if b.Logger != nil {
+		b.Logger.WithFields(logrus.Fields{"chat_id": input.ChatID, "branch_id": input.BranchID, "generation_id": input.ID, "error": err}).Warn(message)
+	}
+}
+
+func (b *Bridge) logErrorFields(message string, fields logrus.Fields) {
+	if b.Logger != nil {
+		b.Logger.WithFields(fields).Error(message)
+	}
+}
+
+func telegramUpdateFields(update Update) logrus.Fields {
+	fields := logrus.Fields{"update_id": update.UpdateID, "event_type": "unknown"}
+	message := update.Message
+	if message != nil {
+		fields["event_type"] = "message"
+	} else if update.ChannelPost != nil {
+		message = update.ChannelPost
+		fields["event_type"] = "channel_post"
+	}
+	if message == nil {
+		return fields
+	}
+	fields["chat_id"] = message.Chat.ID
+	fields["chat_type"] = message.Chat.Type
+	fields["message_id"] = message.MessageID
+	fields["has_text"] = strings.TrimSpace(message.Text) != "" || strings.TrimSpace(message.Caption) != ""
+	fields["attachment_count"] = len(messageMediaFiles(message))
+	if message.From != nil {
+		fields["user_id"] = message.From.ID
+	}
+	return fields
 }
 
 func parseCommand(text, username string) (string, []string, bool, bool) {

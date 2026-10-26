@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -32,6 +33,7 @@ type Config struct {
 	ReasoningEffort string
 	MaxRetries      int
 	Timeout         time.Duration
+	Logger          *logrus.Logger
 }
 
 type Model struct {
@@ -41,6 +43,7 @@ type Model struct {
 	reasoningEffort string
 	maxRetries      int
 	client          *http.Client
+	logger          *logrus.Logger
 }
 
 type ErrorKind string
@@ -139,6 +142,7 @@ func NewModel(cfg Config) (*Model, error) {
 		reasoningEffort: cfg.ReasoningEffort,
 		maxRetries:      cfg.MaxRetries,
 		client:          &http.Client{Timeout: cfg.Timeout},
+		logger:          cfg.Logger,
 	}, nil
 }
 
@@ -180,6 +184,7 @@ func (m *Model) generate(ctx context.Context, body chatRequest) (*model.LLMRespo
 			fallback := body
 			fallback.ReasoningEffort = "none"
 			trace.SpanFromContext(ctx).AddEvent("provider.reasoning_effort_none_fallback")
+			m.logWarn("Azure OpenAI request is retrying without reasoning effort", logrus.Fields{"model": m.model})
 			return m.generate(ctx, fallback)
 		}
 		return nil, err
@@ -318,6 +323,10 @@ func (m *Model) send(ctx context.Context, body chatRequest) (*http.Response, err
 			var networkErr net.Error
 			if attempt < m.maxRetries && errors.As(err, &networkErr) {
 				trace.SpanFromContext(ctx).AddEvent("provider.retry", trace.WithAttributes(attribute.Int("retry.attempt", attempt+1), attribute.String("retry.kind", "network")))
+				m.logWarn("Azure OpenAI network request failed; retry scheduled", logrus.Fields{
+					"provider": "azure-openai", "model": m.model, "retry_attempt": attempt + 1,
+					"retry_kind": "network", "retry_delay_ms": retryDelay(attempt).Milliseconds(), "error": err,
+				})
 				if err := waitRetry(ctx, attempt); err != nil {
 					return nil, err
 				}
@@ -330,6 +339,10 @@ func (m *Model) send(ctx context.Context, body chatRequest) (*http.Response, err
 		}
 		if attempt < m.maxRetries && retryableStatus(resp.StatusCode) {
 			trace.SpanFromContext(ctx).AddEvent("provider.retry", trace.WithAttributes(attribute.Int("retry.attempt", attempt+1), attribute.Int("http.status_code", resp.StatusCode)))
+			m.logWarn("Azure OpenAI request failed; retry scheduled", logrus.Fields{
+				"provider": "azure-openai", "model": m.model, "retry_attempt": attempt + 1,
+				"http_status": resp.StatusCode, "retry_delay_ms": retryDelay(attempt).Milliseconds(),
+			})
 			resp.Body.Close()
 			if err := waitRetry(ctx, attempt); err != nil {
 				return nil, err
@@ -361,6 +374,12 @@ func (m *Model) send(ctx context.Context, body chatRequest) (*http.Response, err
 	}
 }
 
+func (m *Model) logWarn(message string, fields logrus.Fields) {
+	if m.logger != nil {
+		m.logger.WithFields(fields).Warn(message)
+	}
+}
+
 func retryableStatus(code int) bool {
 	return code == http.StatusTooManyRequests || code >= 500 && code <= 599
 }
@@ -382,8 +401,7 @@ func classifyReasoningEffortIssue(code, message string) string {
 }
 
 func waitRetry(ctx context.Context, attempt int) error {
-	delay := 100 * time.Millisecond * time.Duration(1<<attempt)
-	timer := time.NewTimer(delay)
+	timer := time.NewTimer(retryDelay(attempt))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -391,6 +409,10 @@ func waitRetry(ctx context.Context, attempt int) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	return 100 * time.Millisecond * time.Duration(1<<attempt)
 }
 
 func safeErrorToken(value string) string {

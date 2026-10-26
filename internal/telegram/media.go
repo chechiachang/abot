@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -164,11 +165,11 @@ func nameFromMIME(mimeType string) string {
 func (b *Bridge) attachmentInput(ctx context.Context, input agentruntime.QueuedInput, prompt string) (string, []*genai.Part, error) {
 	currentPolicy, err := b.policy()
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("load attachment policy: %w", err)
 	}
 	attachments, err := b.State.InputAttachments(ctx, input.ID, input.ChatID, strconv.FormatInt(input.SenderID, 10), currentPolicy.Telegram.ApprovedChannelIDs)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("load queued attachment records: %w", err)
 	}
 	if len(attachments) == 0 {
 		return prompt, nil, nil
@@ -183,7 +184,7 @@ func (b *Bridge) attachmentInput(ctx context.Context, input agentruntime.QueuedI
 		item := media.Attachment{ID: record.ID, Path: record.Path, Name: record.Name, MIMEType: record.MIMEType, Kind: record.Kind, Size: record.Size, CreatedAt: record.CreatedAt}
 		text, image, err := b.Media.Extract(ctx, item)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("extract %s attachment %s: %w", record.Kind, record.ID, err)
 		}
 		if text != "" {
 			extractedBytes += len(text)
