@@ -140,7 +140,7 @@ func (t *Tools) write(ctx agent.ToolContext, args writeArgs) (result writeResult
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-	if err := os.WriteFile(path, []byte(args.Content), mode); err != nil {
+	if err := t.writeFile(path, []byte(args.Content), mode); err != nil {
 		return writeResult{}, err
 	}
 	return writeResult{Path: args.Path, BytesWritten: len(args.Content)}, nil
@@ -190,10 +190,23 @@ func (t *Tools) editWithContext(ctx context.Context, args editArgs) (writeResult
 	if err != nil {
 		return writeResult{}, err
 	}
-	if err := os.WriteFile(path, []byte(updated), info.Mode().Perm()); err != nil {
+	if err := t.writeFile(path, []byte(updated), info.Mode().Perm()); err != nil {
 		return writeResult{}, err
 	}
 	return writeResult{Path: args.Path, BytesWritten: len(updated)}, nil
+}
+
+func (t *Tools) writeFile(path string, data []byte, mode os.FileMode) error {
+	relative, err := filepath.Rel(t.root, path)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(t.root)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.WriteFile(relative, data, mode)
 }
 
 type bashArgs struct {
