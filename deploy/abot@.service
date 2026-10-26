@@ -1,0 +1,29 @@
+[Unit]
+Description=abot Telegram bot (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=abot
+Group=abot
+StateDirectory=abot-%i
+StateDirectoryMode=0750
+WorkingDirectory=%S/abot-%i
+Environment=HOME=%S/abot-%i
+Environment=ABOT_RUNTIME_SQLITE_PATH=%S/abot-%i/state.sqlite
+Environment=ABOT_MEDIA_ROOT=%S/abot-%i/media
+Environment=ABOT_POLICY_FILE=%S/abot-%i/policy.json
+Environment=ABOT_AUDIT_FILE=%S/abot-%i/audit.jsonl
+EnvironmentFile=-/etc/abot/%i.env
+ExecStartPre=/usr/local/libexec/abot-update-release %S/abot-%i
+ExecStart=%S/abot-%i/abot --config /etc/abot/%i/config.yaml --system-file /etc/abot/%i/SYSTEM.md telegram serve
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
