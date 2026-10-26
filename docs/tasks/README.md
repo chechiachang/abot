@@ -1,6 +1,6 @@
 # Implementation tasks
 
-Source: [plan](../plan.md). Implement files and their sections in order; checkboxes track completed work.
+This directory contains the ordered implementation checklists for the [project plan](../plan.md). Follow dependencies before starting a task; task files define scope and acceptance checks.
 
 | Order | Task | Depends on |
 | --- | --- | --- |
@@ -14,6 +14,4 @@ Source: [plan](../plan.md). Implement files and their sections in order; checkbo
 | 08 | [Domain integrations and images](08-integrations.md) | 02–07 |
 | 09 | [Observability and releases](09-production.md) | 01–08 |
 
-Keep packages small; introduce interfaces only at real boundaries. No web UI. Never commit credentials.
-
-Each task includes acceptance checks. Record verified setup/run/format/lint/test/build commands in `AGENTS.md` when established; unresolved commands and external APIs stay TODO. Update the plan after each completed capability. Optional integrations must not prevent the core bot from starting when disabled.
+When completing a task, update its checklist and the plan, and record verified project commands in [`AGENTS.md`](../../AGENTS.md). Keep packages small, optional integrations non-blocking, and credentials out of version control.

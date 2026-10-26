@@ -1,42 +1,63 @@
 # abot
 
-abot is a Go-based AI assistant for Telegram and the command line. It can answer questions, work with files in a configured workspace, and use optional integrations.
+**A persistent AI assistant for Telegram and the command line, built in Go.**
 
-## Features
+abot brings a practical agent workflow to the places you work: chat with it, give it a workspace, and let it use carefully configured tools to help with code, files, links, and media.
 
-- Persistent conversations with per-chat access and tool policies.
-- Coding tools for reading, editing, writing, and running commands in a workspace.
-- URL, image, document, and audio input.
-- Optional MCP tools, market quotes, and public Polymarket data.
+[![Go checks](https://github.com/chechiachang/abot/actions/workflows/ci.yml/badge.svg)](https://github.com/chechiachang/abot/actions/workflows/ci.yml)
+[![Security scan](https://github.com/chechiachang/abot/actions/workflows/security.yml/badge.svg)](https://github.com/chechiachang/abot/actions/workflows/security.yml)
 
-## Quick start
+## What it can do
 
-Requires Go 1.26.5 and an Azure OpenAI deployment.
+- **Chat across CLI and Telegram** with persistent conversations and configurable per-chat policies.
+- **Work in a coding workspace** using file read, edit, write, and command tools.
+- **Understand shared content** including URLs, images, documents, and audio.
+- **Extend with integrations** for MCP tools, market quotes, and public Polymarket data.
+- **Operate with access controls**; Telegram access is deny-by-default, and optional integrations can stay disabled.
+
+## Get started
+
+Requires **Go 1.26.5** and an Azure OpenAI deployment.
 
 ```sh
+git clone https://github.com/chechiachang/abot.git
+cd abot
 cp .env.example .env
 cp config.example.yaml config.yaml
-# Set Azure OpenAI values in .env
+```
+
+Set the Azure OpenAI values in `.env`, then validate configuration and try a CLI prompt:
+
+```sh
 go mod download
 go run ./cmd/abot --config config.yaml config validate
 go run ./cmd/abot --config config.yaml chat "Summarize this repository."
 ```
 
-To run the Telegram bot, set `TELEGRAM_BOT_TOKEN` and configure allowed users in `config.yaml`, then run:
+To run Telegram, set `TELEGRAM_BOT_TOKEN` in `.env` and add your numeric Telegram user ID to `telegram.allowed_user_ids` in `config.yaml` (the default is empty):
 
 ```sh
 go run ./cmd/abot --config config.yaml telegram serve
 ```
 
-Telegram access is deny-by-default. See `go run ./cmd/abot --help` for other commands. For Docker Compose, run `docker compose up --build`.
+For a container deployment, configure `.env` and `config.yaml`, then start with `docker compose up --build`. See [deployment instructions](deploy/README.md) for a systemd installation.
 
-## GitHub writes
+## Configuration and commands
 
-The coding shell can use `gh` and Git to push changes and open PRs. For local runs, install `gh` and authenticate as the OS user running abot:
+Use `go run ./cmd/abot --help` to explore commands. The checked-in [`config.example.yaml`](config.example.yaml), [`.env.example`](.env.example), and [`SYSTEM.md`](SYSTEM.md) document the available configuration and assistant instructions. Keep credentials in environment variables or a protected secrets store—never commit them.
+
+## Development
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --with-token < /secure/path/to/pat-file
-gh auth setup-git
+go test ./...
+go vet ./...
+go build ./cmd/abot
 ```
 
-Use a fine-grained PAT limited to the target repository with **Contents: Read and write** and **Pull requests: Read and write**. Keep the temporary PAT file outside the workspace and remove it after login; `gh` stores credentials for that OS user. The coding shell can access those credentials. The Docker image does not include `gh`.
+Pull requests run these checks and a free dependency/code security scan. See [CI workflows](.github/workflows/) for details.
+
+## Project guides
+
+- [Deploy with systemd](deploy/README.md)
+- [Implementation task index](docs/tasks/README.md)
+- [Project plan](docs/plan.md)

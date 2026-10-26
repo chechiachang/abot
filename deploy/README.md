@@ -1,15 +1,17 @@
-# systemd
+# systemd deployment
 
-## Ubuntu dependencies
+Install abot as a dedicated systemd service on Ubuntu. The service downloads and checksum-verifies the release binary on startup.
+
+## 1. Install host dependencies
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y bash ca-certificates coreutils curl ffmpeg git gawk jq pandoc poppler-utils tar
 ```
 
-## Install an instance
+## 2. Install the service files
 
-Download the service, updater, example config, and system instructions. Replace `main` with a release tag to pin these files.
+Choose `deploy_ref` as a release tag to pin deployment files, or use `main` to track the latest versions.
 
 ```sh
 set -eu
@@ -40,21 +42,18 @@ fi
 sudo install -d -o abot -g abot -m 0750 /srv/abot/main
 ```
 
-Edit `/etc/abot/main/config.yaml`: set the Azure base URL and model, change `coding.workdir` to `/srv/abot/main` (or another directory writable by `abot`), and add your numeric Telegram user ID to `telegram.allowed_user_ids`. The example list is empty, which denies all users.
+## 3. Configure and start
 
-Add `TELEGRAM_BOT_TOKEN` and `AZURE_OPENAI_API_KEY` to `/etc/abot/main.env`:
+Edit `/etc/abot/main/config.yaml`: set the Azure base URL and model, set `coding.workdir` to `/srv/abot/main` (or another directory writable by `abot`), and add your numeric Telegram user ID to `telegram.allowed_user_ids`. The example list is empty and denies all users.
+
+Add `TELEGRAM_BOT_TOKEN` and `AZURE_OPENAI_API_KEY` to `/etc/abot/main.env`; keep this root-owned file restricted to mode `0600`:
 
 ```sh
 sudoedit /etc/abot/main/config.yaml
 sudoedit /etc/abot/main.env
-```
-
-systemd reads the environment file and passes its values to abot; the file is root-owned and mode `0600`. The config and system-instruction files are readable by the `abot` service user.
-
-```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now abot@main
 sudo systemctl status --no-pager abot@main
 ```
 
-Each start downloads and checksum-verifies the latest Linux release for the host architecture before running `abot telegram serve`. For another bot, create its own `/etc/abot/<name>/config.yaml`, `SYSTEM.md`, and `/etc/abot/<name>.env`, then enable `abot@<name>`; its runtime state is stored separately.
+Each service start fetches and checksum-verifies the latest Linux release for the host architecture, then runs `abot telegram serve`. To run another bot, provide separate `/etc/abot/<name>/config.yaml`, `SYSTEM.md`, and `/etc/abot/<name>.env`, then enable `abot@<name>`; runtime state is isolated per instance.
