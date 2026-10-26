@@ -461,6 +461,7 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	fields := logrus.Fields{"chat_id": chatID, "branch_id": input.BranchID, "generation_id": input.ID, "input_kind": input.Kind}
 	b.logInfo("processing queued Telegram turn", fields)
 	statusMessageID, _ := b.sendOutbox(ctx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, Payload: "Working…", ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
+	reporter := newActivityReporter(b, chatID, statusMessageID)
 	prompt := input.Text
 	if chatID < 0 {
 		messages, err := b.State.RecentPassiveMessages(ctx, chatID, 10)
@@ -484,7 +485,6 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		}
 		b.logWarnFields("Telegram attachment processing failed", fields)
 		_ = b.State.CompleteInput(context.Background(), input.ID, "media_error")
-		reporter := &activityReporter{bridge: b, chatID: chatID, messageID: statusMessageID}
 		reporter.Finish("Attachment processing failed.")
 		_ = b.sendText(ctx, chatID, "I couldn't process that attachment: "+mediaFailureMessage(err), input.ReplyToMessageID, input.BranchID, "")
 		return
@@ -499,7 +499,6 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 			}
 			b.logWarnFields("Telegram article sources could not be read", fields)
 			_ = b.State.CompleteInput(context.Background(), input.ID, "article_source_error")
-			reporter := &activityReporter{bridge: b, chatID: chatID, messageID: statusMessageID}
 			reporter.Finish("A required source could not be read; nothing was published.")
 			text := "I couldn't read a required source, so I didn't generate or publish a partial article."
 			if errors.As(err, &sourceErr) && sourceErr.Category != "" {
@@ -509,7 +508,6 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 			return
 		}
 	}
-	reporter := &activityReporter{bridge: b, chatID: chatID, messageID: statusMessageID}
 	result, err := b.Engine.RunWithMedia(ctx, input.ChatID, chatID, input.UserID, input.BranchID, prompt, mediaParts, reporter.OnEvent)
 	if err != nil {
 		failureKind := "agent_error"
@@ -609,8 +607,25 @@ type activityReporter struct {
 	chatID    int64
 	messageID int64
 	mu        sync.Mutex
-	last      time.Time
+	startedAt time.Time
+	lastEdit  time.Time
 	lastText  string
+	status    string
+	progress  []string
+	stop      chan struct{}
+	done      chan struct{}
+	stopOnce  sync.Once
+}
+
+func newActivityReporter(bridge *Bridge, chatID, messageID int64) *activityReporter {
+	r := &activityReporter{
+		bridge: bridge, chatID: chatID, messageID: messageID,
+		startedAt: time.Now(), status: "Working…", stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	if messageID != 0 {
+		go r.heartbeat()
+	}
+	return r
 }
 
 func (r *activityReporter) OnEvent(event workflow.Event) {
@@ -618,36 +633,138 @@ func (r *activityReporter) OnEvent(event workflow.Event) {
 		return
 	}
 	status := ""
-	key := ""
+	line := ""
 	if event.Tool != "" {
-		status, key = "Working: `"+event.Tool+"`…", event.Tool+":"+event.ToolState
-		if event.ToolState == "completed" {
-			status = "Finished: `" + event.Tool + "`"
+		agent := progressLabel(event.Agent)
+		tool := progressLabel(event.Tool)
+		switch {
+		case event.Tool == "coding_agent" && event.ToolState == "started":
+			status = "Working: `coding_agent`…"
+			line = "Delegating work to `coding_agent`"
+		case event.Tool == "coding_agent" && event.ToolState == "completed":
+			status = "Working…"
+			line = "`coding_agent` returned its result"
+		case event.ToolState == "started":
+			if agent == "" {
+				agent = "agent"
+			}
+			if agent == "coding_agent" {
+				status = "Working: `coding_agent`…"
+			} else {
+				status = "Working: `" + tool + "`…"
+			}
+			line = "`" + agent + "` started `" + tool + "`"
+		case event.ToolState == "completed":
+			status = "Working…"
+			if agent == "" {
+				agent = "agent"
+			}
+			line = "`" + agent + "` completed `" + tool + "`"
 		}
 	} else if event.Agent == "coordinator" && event.Partial {
-		status, key = "Generating response…", "model"
-	} else {
+		status, line = "Planning…", "Coordinator is planning the request"
+	} else if event.Agent == "coding_agent" && event.Partial {
+		status, line = "Working: `coding_agent`…", "Coding agent is working"
+	} else if event.Kind == workflow.EventResult {
+		status, line = "Finishing response…", "Preparing the final response"
+	}
+	if status == "" {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	now := time.Now()
-	if now.Sub(r.last) < 2*time.Second || key == r.lastText {
+	r.status = status
+	r.addProgressLocked(line)
+	r.editLocked(false)
+}
+
+func (r *activityReporter) heartbeat() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	defer close(r.done)
+	for {
+		select {
+		case <-r.stop:
+			return
+		case <-ticker.C:
+			r.mu.Lock()
+			r.addProgressLocked("Still working · " + elapsed(time.Since(r.startedAt)))
+			r.editLocked(true)
+			r.mu.Unlock()
+		}
+	}
+}
+
+func (r *activityReporter) addProgressLocked(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" || len(r.progress) > 0 && r.progress[len(r.progress)-1] == line {
 		return
 	}
-	r.last, r.lastText = now, key
+	r.progress = append(r.progress, line)
+	if len(r.progress) > 12 {
+		r.progress = r.progress[len(r.progress)-12:]
+	}
+}
+
+func (r *activityReporter) editLocked(force bool) {
+	text := r.renderLocked()
+	if text == r.lastText {
+		return
+	}
+	now := time.Now()
+	if !force && now.Sub(r.lastEdit) < 2*time.Second {
+		return
+	}
+	r.lastEdit, r.lastText = now, text
 	editCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_ = r.bridge.Client.EditMessage(editCtx, SendMessage{ChatID: r.chatID, Text: RenderHTML(status), ParseMode: "HTML", DisableLinkPreview: true}, r.messageID)
+	if err := r.bridge.Client.EditMessage(editCtx, SendMessage{ChatID: r.chatID, Text: RenderHTML(text), ParseMode: "HTML", DisableLinkPreview: true}, r.messageID); err != nil {
+		r.bridge.logWarnFields("Telegram progress message update failed", logrus.Fields{"chat_id": r.chatID, "message_id": r.messageID, "error": err})
+	}
+}
+
+func (r *activityReporter) renderLocked() string {
+	text := r.status
+	if len(r.progress) > 0 {
+		text += "\n\nProgress:\n• " + strings.Join(r.progress, "\n• ")
+	}
+	return text
 }
 
 func (r *activityReporter) Finish(text string) {
 	if r.messageID == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = r.bridge.Client.EditMessage(ctx, SendMessage{ChatID: r.chatID, Text: RenderHTML(text), ParseMode: "HTML", DisableLinkPreview: true}, r.messageID)
+	r.stopOnce.Do(func() { close(r.stop) })
+	if r.done != nil {
+		<-r.done
+	}
+	r.mu.Lock()
+	r.status = text
+	r.editLocked(true)
+	r.mu.Unlock()
+}
+
+func progressLabel(value string) string {
+	var label strings.Builder
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '.' {
+			label.WriteRune(char)
+		} else if label.Len() > 0 && !strings.HasSuffix(label.String(), "-") {
+			label.WriteByte('-')
+		}
+		if label.Len() >= 48 {
+			break
+		}
+	}
+	return strings.Trim(label.String(), "-")
+}
+
+func elapsed(duration time.Duration) string {
+	if duration < time.Minute {
+		return duration.Round(10 * time.Second).String()
+	}
+	return duration.Round(time.Minute).String()
 }
 
 func (b *Bridge) sendText(ctx context.Context, chatID int64, text string, replyTo int64, branch, checkpoint string) error {
