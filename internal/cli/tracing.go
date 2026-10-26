@@ -10,7 +10,7 @@ import (
 )
 
 func configureTracing(ctx context.Context, cfg config.Config, logger *logrus.Logger) func() {
-	shutdown, err := observability.Start(ctx, cfg.Logfire.Endpoint, cfg.Logfire.Token)
+	shutdown, err := observability.Start(ctx, cfg.Logfire.Endpoint, cfg.Logfire.Token, cfg.Logfire.Environment)
 	if err != nil {
 		logger.WithError(err).Warn("Logfire tracing disabled")
 		return func() {}

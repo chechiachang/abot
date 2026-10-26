@@ -120,8 +120,9 @@ type URLReaderConfig struct {
 }
 
 type LogfireConfig struct {
-	Endpoint string `mapstructure:"endpoint"`
-	Token    string `mapstructure:"token"`
+	Endpoint    string `mapstructure:"endpoint"`
+	Environment string `mapstructure:"environment"`
+	Token       string `mapstructure:"token"`
 }
 
 func (c TelegramConfig) Policy() policy.Telegram {
@@ -186,6 +187,7 @@ func NewViper() *viper.Viper {
 		"url_reader.firecrawl_endpoint":          {"ABOT_URL_FIRECRAWL_ENDPOINT"},
 		"url_reader.firecrawl_api_key":           {"FIRECRAWL_API_KEY"},
 		"logfire.endpoint":                       {"ABOT_LOGFIRE_ENDPOINT"},
+		"logfire.environment":                    {"LOGFIRE_ENVIRONMENT", "ABOT_LOGFIRE_ENVIRONMENT"},
 		"logfire.token":                          {"LOGFIRE_TOKEN"},
 	} {
 		_ = v.BindEnv(append([]string{key}, names...)...)

@@ -19,7 +19,7 @@ func TestOTLPExporterSendsBearerAuthAndFlushes(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
-	shutdown, err := Start(context.Background(), server.URL+"/v1/traces", "logfire-test-token")
+	shutdown, err := Start(context.Background(), server.URL+"/v1/traces", "logfire-test-token", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestOTLPExporterSendsBearerAuthAndFlushes(t *testing.T) {
 }
 
 func TestTracingDisabledWithoutToken(t *testing.T) {
-	shutdown, err := Start(context.Background(), "", "")
+	shutdown, err := Start(context.Background(), "", "", "")
 	if err != nil || shutdown == nil {
 		t.Fatalf("shutdown available=%t err=%v", shutdown != nil, err)
 	}

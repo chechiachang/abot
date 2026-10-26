@@ -13,7 +13,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-func Start(ctx context.Context, endpoint, token string) (func(context.Context) error, error) {
+func Start(ctx context.Context, endpoint, token, environment string) (func(context.Context) error, error) {
 	if strings.TrimSpace(token) == "" {
 		return func(context.Context) error { return nil }, nil
 	}
@@ -28,9 +28,17 @@ func Start(ctx context.Context, endpoint, token string) (func(context.Context) e
 	if err != nil {
 		return nil, errors.New("could not initialize Logfire OTLP exporter")
 	}
+	attributes := []attribute.KeyValue{attribute.String("service.name", "abot")}
+	if strings.TrimSpace(environment) != "" {
+		environment = strings.TrimSpace(environment)
+		attributes = append(attributes,
+			attribute.String("deployment.environment", environment),
+			attribute.String("deployment.environment.name", environment),
+		)
+	}
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(2*time.Second), sdktrace.WithExportTimeout(5*time.Second)),
-		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "abot"))),
+		sdktrace.WithResource(resource.NewSchemaless(attributes...)),
 	)
 	otel.SetTracerProvider(provider)
 	return provider.Shutdown, nil

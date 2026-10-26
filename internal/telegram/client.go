@@ -111,8 +111,8 @@ type TelegramFile struct {
 }
 
 type Updates struct {
-	Offset  int64
-	Timeout int
+	Offset  int64 `json:"offset,omitempty"`
+	Timeout int   `json:"timeout"`
 }
 
 type SendMessage struct {
