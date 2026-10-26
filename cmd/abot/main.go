@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -16,7 +15,7 @@ import (
 
 func main() {
 	if err := loadDotEnv(".env"); err != nil {
-		fmt.Fprintln(os.Stderr, "could not load .env")
+		logging.New().Error("could not load .env")
 		os.Exit(1)
 	}
 	cmd := cli.NewRootCmd()
@@ -24,7 +23,13 @@ func main() {
 	defer stop()
 	cmd.SetContext(ctx)
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, logging.Redact(err.Error()))
+		logger := logging.New(
+			os.Getenv("ABOT_AZURE_API_KEY"), os.Getenv("AZURE_OPENAI_API_KEY"),
+			os.Getenv("ABOT_TELEGRAM_BOT_TOKEN"), os.Getenv("TELEGRAM_BOT_TOKEN"),
+			os.Getenv("ABOT_MORSEL_API_KEY"), os.Getenv("MORSEL_API_KEY"),
+			os.Getenv("FIRECRAWL_API_KEY"), os.Getenv("LOGFIRE_TOKEN"),
+		)
+		logger.WithField("command", cmd.CommandPath()).WithError(err).Error("command failed")
 		os.Exit(1)
 	}
 }

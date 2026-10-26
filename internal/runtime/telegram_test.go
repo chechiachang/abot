@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestTelegramUpdateDeduplicationAndDurableOffset(t *testing.T) {
@@ -41,6 +44,10 @@ func TestAttachmentOwnershipAndApprovedChannelReadAuthorization(t *testing.T) {
 	input, err := store.EnqueueTelegramTurn(ctx, "10", "main", "10", 10, 1, 0, InputFollowup, "describe")
 	if err != nil {
 		t.Fatal(err)
+	}
+	attachments, err := store.InputAttachments(ctx, input.ID, "10", "10", nil)
+	if err != nil || len(attachments) != 0 {
+		t.Fatalf("text-only input attachments=%#v err=%v", attachments, err)
 	}
 	if err := store.AttachInput(ctx, input.ID, "10", "10", []string{"channel-image"}, []int64{-900}); err != nil {
 		t.Fatal(err)
@@ -101,6 +108,57 @@ func TestTelegramOutboxRetriesAfterRestartAndMapsAnswerMessage(t *testing.T) {
 	mapped, err := store.OutboxByMessageID(ctx, 99, 500)
 	if err != nil || mapped.CheckpointEventID != "event-1" || mapped.BranchID != "main" {
 		t.Fatalf("answer mapping=%#v err=%v", mapped, err)
+	}
+}
+
+func TestTelegramOutboxMessageReuseAndIndexMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	db, err := gorm.Open(sqlite.Open(sqliteDSN(path, false)), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&Outbox{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("DROP INDEX idx_runtime_outbox_chat_message").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE UNIQUE INDEX idx_runtime_telegram_outbox_telegram_message_id ON runtime_telegram_outbox(telegram_message_id)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE UNIQUE INDEX idx_runtime_outbox_chat_message ON runtime_telegram_outbox(chat_id, telegram_message_id)").Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	for i, chatID := range []int64{10, 20, 10} {
+		eventID := []string{"event-a", "event-b", "event-c"}[i]
+		item, err := store.EnqueueOutbox(ctx, Outbox{ChatID: chatID, CheckpointEventID: eventID, Payload: "answer"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started, err := store.BeginDelivery(ctx, item.ID); err != nil || !started {
+			t.Fatalf("begin delivery for chat %d = %t, err=%v", chatID, started, err)
+		}
+		if err := store.CompleteDelivery(ctx, item.ID, 42); err != nil {
+			t.Fatalf("complete delivery for chat %d: %v", chatID, err)
+		}
+		mapped, err := store.OutboxByMessageID(ctx, chatID, 42)
+		if err != nil || mapped.ChatID != chatID || (i == 2 && mapped.CheckpointEventID != eventID) {
+			t.Fatalf("message mapping for chat %d = %#v, err=%v", chatID, mapped, err)
+		}
 	}
 }
 

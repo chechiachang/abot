@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/chechiachang/abot/internal/coding"
 	"github.com/chechiachang/abot/internal/config"
@@ -51,14 +52,36 @@ func (e *Engine) Run(parent context.Context, chatID string, numericChatID int64,
 }
 
 func (e *Engine) RunWithMedia(parent context.Context, chatID string, numericChatID int64, userID, branchID, prompt string, mediaParts []*genai.Part, onEvent func(workflow.Event)) (Result, error) {
+	startedAt := time.Now()
+	fields := logrus.Fields{
+		"chat_id": chatID, "branch_id": branchID, "input_bytes": len(prompt), "media_count": len(mediaParts),
+	}
+	e.logInfo("agent turn started", fields)
 	ctx, span := otel.Tracer("abot/engine").Start(parent, "agent.turn", trace.WithAttributes(
 		attribute.String("chat.id", chatID), attribute.String("branch.id", branchID),
 	))
 	defer span.End()
 	result, err := e.runWithMedia(ctx, chatID, numericChatID, userID, branchID, prompt, mediaParts, onEvent)
+	fields["duration_ms"] = time.Since(startedAt).Milliseconds()
+	if result.RequestID != "" {
+		fields["request_id"] = result.RequestID
+	}
+	if result.EventID != "" {
+		fields["event_id"] = result.EventID
+	}
 	if err != nil {
 		span.SetStatus(codes.Error, "agent turn failed")
 		span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
+		fields["error_kind"] = errorKind(err)
+		fields["error"] = err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			e.logWarn("agent turn stopped", fields)
+		} else {
+			e.logError("agent turn failed", fields)
+		}
+	} else {
+		fields["response_bytes"] = len(result.Text)
+		e.logInfo("agent turn completed", fields)
 	}
 	if result.RequestID != "" {
 		span.SetAttributes(attribute.String("request.id", result.RequestID))
@@ -92,6 +115,10 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	if err != nil {
 		return Result{}, err
 	}
+	e.logInfo("agent turn policy selected", logrus.Fields{
+		"chat_id": chatID, "branch_id": branchID, "model": selection.Model,
+		"tool_count": len(selection.Tools), "skill_count": len(selection.Skills), "mcp_connection_count": len(selection.MCP),
+	})
 	instruction, err := instructions.Load(e.Config.Instructions.SystemFile, e.Config.Instructions.SoulFile)
 	if err != nil {
 		return Result{}, err
@@ -107,7 +134,7 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	instruction += "\n\n" + skills.Render(selectedSkills)
 	llm, err := azureopenai.NewModel(azureopenai.Config{
 		BaseURL: e.Config.Azure.BaseURL, APIKey: e.Config.Azure.APIKey, Model: selection.Model,
-		ReasoningEffort: selection.ThinkingLevel, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout,
+		ReasoningEffort: selection.ThinkingLevel, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout, Logger: e.Logger,
 	})
 	if err != nil {
 		return Result{}, err
@@ -239,6 +266,10 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 			}
 		}
 		if update.Tool != "" && update.ToolState != "" {
+			e.logDebug("agent tool execution updated", logrus.Fields{
+				"chat_id": chatID, "branch_id": branchID, "request_id": requestID,
+				"tool_name": update.Tool, "tool_state": update.ToolState,
+			})
 			if update.ToolState == "started" {
 				progress = append(progress, agentruntime.Step{ID: fmt.Sprintf("tool-%d", len(progress)+1), Title: "Run " + update.Tool, Status: agentruntime.StepInProgress})
 			} else {
@@ -272,6 +303,30 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		return Result{RequestID: requestID, EventID: resultEventID, Text: answer.String()}, err
 	}
 	return Result{RequestID: requestID, EventID: resultEventID, Text: answer.String(), Progress: progress}, nil
+}
+
+func (e *Engine) logInfo(message string, fields logrus.Fields) {
+	if e != nil && e.Logger != nil {
+		e.Logger.WithFields(fields).Info(message)
+	}
+}
+
+func (e *Engine) logWarn(message string, fields logrus.Fields) {
+	if e != nil && e.Logger != nil {
+		e.Logger.WithFields(fields).Warn(message)
+	}
+}
+
+func (e *Engine) logError(message string, fields logrus.Fields) {
+	if e != nil && e.Logger != nil {
+		e.Logger.WithFields(fields).Error(message)
+	}
+}
+
+func (e *Engine) logDebug(message string, fields logrus.Fields) {
+	if e != nil && e.Logger != nil {
+		e.Logger.WithFields(fields).Debug(message)
+	}
 }
 
 func contains(values []string, value string) bool {

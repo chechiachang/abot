@@ -98,7 +98,7 @@ func configCommand(v *viper.Viper) *cobra.Command {
 			logger := logging.New(cfg.Azure.APIKey, cfg.Logfire.Token, cfg.URLReader.FirecrawlAPIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
-			logger.Debug("configuration validated")
+			logger.WithField("command", "config validate").Debug("configuration validated")
 			if _, err := instructions.Load(cfg.Instructions.SystemFile, cfg.Instructions.SoulFile); err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func chatCommand(v *viper.Viper) *cobra.Command {
 			if strings.TrimSpace(branchID) == "" {
 				return errors.New("branch ID cannot be empty")
 			}
-			logger.WithFields(logrus.Fields{"provider": "azure-openai", "chat_id": chatID}).Debug("starting chat")
+			logger.WithFields(logrus.Fields{"provider": "azure-openai", "chat_id": chatID, "branch_id": branchID}).Debug("starting chat")
 			state, err := agentruntime.Open(cfg.Runtime.SQLitePath)
 			if err != nil {
 				return err

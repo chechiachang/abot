@@ -143,6 +143,9 @@ func (s *Store) InputAttachments(ctx context.Context, inputID, chatID, ownerID s
 	if err := s.db.WithContext(ctx).Where("id = ? AND chat_id = ?", inputID, chatID).First(&input).Error; err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(input.AttachmentIDs) == "" {
+		return nil, nil
+	}
 	var ids []string
 	if err := json.Unmarshal([]byte(input.AttachmentIDs), &ids); err != nil {
 		return nil, errors.New("queued attachment references are invalid")
@@ -256,7 +259,7 @@ const (
 
 type Outbox struct {
 	ID                string       `gorm:"primaryKey;size:128" json:"id"`
-	ChatID            int64        `gorm:"index:idx_runtime_outbox,priority:1" json:"chat_id"`
+	ChatID            int64        `gorm:"index:idx_runtime_outbox,priority:1;index:idx_runtime_outbox_chat_message,priority:1" json:"chat_id"`
 	UserID            string       `gorm:"size:128" json:"user_id"`
 	BranchID          string       `gorm:"size:128" json:"branch_id"`
 	CheckpointEventID string       `gorm:"size:128" json:"checkpoint_event_id"`
@@ -266,7 +269,7 @@ type Outbox struct {
 	Status            OutboxStatus `gorm:"index:idx_runtime_outbox,priority:2;size:32" json:"status"`
 	Attempts          int          `json:"attempts"`
 	NextAttemptAt     time.Time    `gorm:"index:idx_runtime_outbox,priority:3" json:"next_attempt_at"`
-	TelegramMessageID *int64       `gorm:"uniqueIndex" json:"telegram_message_id,omitempty"`
+	TelegramMessageID *int64       `gorm:"index:idx_runtime_outbox_chat_message,priority:2" json:"telegram_message_id,omitempty"`
 	ErrorKind         string       `gorm:"size:64" json:"error_kind,omitempty"`
 	CreatedAt         time.Time    `json:"created_at"`
 	UpdatedAt         time.Time    `json:"updated_at"`
@@ -437,7 +440,7 @@ func (s *Store) FailDelivery(ctx context.Context, id, errorKind string, retryAt 
 
 func (s *Store) OutboxByMessageID(ctx context.Context, chatID, messageID int64) (Outbox, error) {
 	var item Outbox
-	err := s.db.WithContext(ctx).Where("chat_id = ? AND telegram_message_id = ? AND status = ?", chatID, messageID, OutboxSent).First(&item).Error
+	err := s.db.WithContext(ctx).Where("chat_id = ? AND telegram_message_id = ? AND status = ?", chatID, messageID, OutboxSent).Order("sent_at DESC, created_at DESC, id DESC").First(&item).Error
 	return item, err
 }
 
