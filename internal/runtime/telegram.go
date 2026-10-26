@@ -338,6 +338,23 @@ func (s *Store) TelegramUpdateOffset(ctx context.Context) (int64, error) {
 	return value.IntValue, err
 }
 
+func (s *Store) SetTelegramUpdateOffset(ctx context.Context, offset int64) error {
+	if err := s.requireWrite(); err != nil {
+		return err
+	}
+	if offset < 0 {
+		return errors.New("telegram update offset cannot be negative")
+	}
+	value := RuntimeValue{Key: "telegram_update_offset", IntValue: offset, UpdatedAt: time.Now().UTC()}
+	if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.Assignments(map[string]any{"int_value": offset, "updated_at": value.UpdatedAt}),
+	}).Create(&value).Error; err != nil {
+		return fmt.Errorf("set Telegram update offset: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) SavePassiveMessage(ctx context.Context, message PassiveMessage) error {
 	if err := s.requireWrite(); err != nil {
 		return err

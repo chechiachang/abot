@@ -78,13 +78,19 @@ func (b *Bridge) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	storedOffset := offset
+	rebaseOffset := true
 	b.logInfo("Telegram polling started", logrus.Fields{"update_offset": offset})
 	defer func() {
 		b.logInfo("Telegram polling stopped", logrus.Fields{"update_offset": offset})
 	}()
 	attempt := 0
 	for ctx.Err() == nil {
-		updates, err := b.Client.GetUpdates(ctx, offset, 30)
+		requestOffset := offset
+		if rebaseOffset {
+			requestOffset = 0
+		}
+		updates, err := b.Client.GetUpdates(ctx, requestOffset, 30)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -107,10 +113,15 @@ func (b *Bridge) Run(ctx context.Context) error {
 		}
 		attempt = 0
 		sort.Slice(updates, func(i, j int) bool { return updates[i].UpdateID < updates[j].UpdateID })
+		if rebaseOffset && len(updates) > 0 {
+			offset = 0
+		}
 		for _, update := range updates {
 			if update.UpdateID <= 0 {
 				continue
 			}
+			fields := telegramUpdateFields(update)
+			b.logInfo("received Telegram bot event", fields)
 			chatID := int64(0)
 			if update.Message != nil {
 				chatID = update.Message.Chat.ID
@@ -124,14 +135,20 @@ func (b *Bridge) Run(ctx context.Context) error {
 			}
 			offset = max(offset, update.UpdateID+1)
 			if !accepted {
+				b.logInfo("duplicate Telegram bot event ignored", fields)
 				continue
 			}
-			b.logDebug("received Telegram bot event", telegramUpdateFields(update))
 			if err := b.handleUpdate(ctx, update); err != nil {
-				fields := telegramUpdateFields(update)
 				fields["error"] = err
 				b.logWarnFields("Telegram update was recorded but could not be handled", fields)
 			}
+		}
+		if rebaseOffset && len(updates) > 0 {
+			if err := b.State.SetTelegramUpdateOffset(ctx, offset); err != nil {
+				return err
+			}
+			b.logInfo("Telegram polling offset rebased", logrus.Fields{"previous_offset": storedOffset, "update_offset": offset})
+			rebaseOffset = false
 		}
 	}
 	return nil
@@ -894,12 +911,6 @@ func (b *Bridge) logInfo(message string, fields logrus.Fields) {
 	}
 }
 
-func (b *Bridge) logDebug(message string, fields logrus.Fields) {
-	if b.Logger != nil {
-		b.Logger.WithFields(fields).Debug(message)
-	}
-}
-
 func (b *Bridge) logWarnInput(message string, input agentruntime.QueuedInput, err error) {
 	if b.Logger != nil {
 		b.Logger.WithFields(logrus.Fields{"chat_id": input.ChatID, "branch_id": input.BranchID, "generation_id": input.ID, "error": err}).Warn(message)
@@ -927,6 +938,9 @@ func telegramUpdateFields(update Update) logrus.Fields {
 	fields["chat_id"] = message.Chat.ID
 	fields["chat_type"] = message.Chat.Type
 	fields["message_id"] = message.MessageID
+	if message.Date > 0 {
+		fields["message_age_seconds"] = int64(time.Since(time.Unix(message.Date, 0)).Seconds())
+	}
 	fields["has_text"] = strings.TrimSpace(message.Text) != "" || strings.TrimSpace(message.Caption) != ""
 	fields["attachment_count"] = len(messageMediaFiles(message))
 	if message.From != nil {
