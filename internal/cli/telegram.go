@@ -48,7 +48,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 			if _, err := current.Effective(0); err != nil {
 				return err
 			}
-			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token)
+			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.Telegram.R2AccessKeyID, cfg.Telegram.R2SecretAccessKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
 			stopTracing := configureTracing(cmd.Context(), cfg, logger)
@@ -64,6 +64,18 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return err
 				}
 			}
+			var r2 *telegram.R2Uploader
+			if cfg.Telegram.R2AccountID != "" {
+				r2, err = telegram.NewR2Uploader(cmd.Context(), telegram.R2Config{
+					AccountID: cfg.Telegram.R2AccountID, Bucket: cfg.Telegram.R2Bucket,
+					AccessKeyID: cfg.Telegram.R2AccessKeyID, SecretAccessKey: cfg.Telegram.R2SecretAccessKey,
+					Endpoint: cfg.Telegram.R2Endpoint, Prefix: cfg.Telegram.R2Prefix,
+					Expiry: cfg.Telegram.R2URLExpiry, MaxBytes: cfg.Telegram.R2MaxBytes,
+				})
+				if err != nil {
+					return errors.New("configure Cloudflare R2 long-response uploads")
+				}
+			}
 			state, err := agentruntime.Open(cfg.Runtime.SQLitePath)
 			if err != nil {
 				return err
@@ -76,7 +88,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return active, err
 				},
 			}
-			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, Logger: logger}
+			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, R2: r2, Logger: logger}
 			return bridge.Run(cmd.Context())
 		},
 	})

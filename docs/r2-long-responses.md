@@ -1,0 +1,7 @@
+# Telegram long-response R2 storage
+
+Telegram `sendMessage` supports at most 4096 characters. Optional private R2 storage lets `telegram serve` upload oversized ordinary assistant replies and return a time-limited presigned GET URL. Short replies and existing Morsel publication for `/f` articles are unchanged. When R2 is not configured, the existing Morsel long-response fallback remains available. R2 upload errors result in a generic user message and categorized, non-sensitive logs.
+
+Configure account ID, bucket, optional endpoint/prefix, URL expiry, and max response bytes in the `telegram` section of `config.yaml`. Set `ABOT_TELEGRAM_R2_ACCESS_KEY_ID` and `ABOT_TELEGRAM_R2_SECRET_ACCESS_KEY` via environment secrets; credential fields in YAML are rejected. See `config.example.yaml` and `.env.example`. Use an HTTPS Cloudflare endpoint, private bucket, and a dedicated token scoped to read/write only in this bucket. Presigned URLs grant bearer access until expiry; choose a short expiry appropriate to your content. R2 does not delete objects when links expire: use a bucket lifecycle rule to expire stored response objects.
+
+Defaults when enabled are a 15-minute URL expiry and 5 MiB response limit. Limits are 1 minute–7 days and 1 byte–50 MiB. Objects receive cryptographically random names, are uploaded as UTF-8 plain text with server-side encryption, and are never logged by the application.

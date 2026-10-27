@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/chechiachang/abot/internal/config"
 	"github.com/chechiachang/abot/internal/engine"
@@ -41,6 +42,7 @@ type Bridge struct {
 	Media     *media.Store
 	Client    *Client
 	Publisher Publisher
+	R2        *R2Uploader
 	Quotes    *quotes.Client
 	Logger    *logrus.Logger
 
@@ -58,7 +60,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 		return errors.New("Telegram bridge requires runtime, agent engine, and Bot API client")
 	}
 	if b.Logger == nil {
-		b.Logger = logging.New(b.Config.Azure.APIKey, b.Config.Telegram.BotToken, b.Config.Telegram.MorselAPIKey, b.Config.URLReader.FirecrawlAPIKey, b.Config.Logfire.Token)
+		b.Logger = logging.New(b.Config.Azure.APIKey, b.Config.Telegram.BotToken, b.Config.Telegram.MorselAPIKey, b.Config.Telegram.R2AccessKeyID, b.Config.Telegram.R2SecretAccessKey, b.Config.URLReader.FirecrawlAPIKey, b.Config.Logfire.Token)
 	}
 	if b.Engine.Turns == nil {
 		b.Engine.Turns = agentruntime.NewTurnManager()
@@ -703,6 +705,40 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 		if len(completed) > 0 {
 			answer += "\n\nCompleted progress:\n" + strings.Join(completed, "\n")
 		}
+	}
+	if utf8.RuneCountInString(answer) <= TelegramTextLimit {
+		payload := RenderHTML(answer)
+		queueCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
+		if err != nil {
+			b.logWarnInput("agent response could not be persisted to the Telegram outbox", input, err)
+			return
+		}
+		if _, err := b.deliverOne(ctx, item); err != nil {
+			b.logWarnInput("agent response remains in the Telegram outbox", input, err)
+		}
+		return
+	}
+	if b.R2 != nil {
+		link, err := b.R2.Publish(ctx, answer)
+		if err != nil {
+			b.logWarnFields("long Telegram response could not be uploaded", logrus.Fields{"chat_id": chatID, "generation_id": input.ID, "error_category": "r2_upload_failed"})
+			_ = b.sendText(ctx, chatID, "I couldn't safely store the long response. Please try again or ask for a shorter answer.", input.ReplyToMessageID, input.BranchID, "")
+			return
+		}
+		payload := RenderHTML("This response is too long for Telegram. Read it before the link expires:\n" + link)
+		queueCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
+		if err != nil {
+			b.logWarnInput("long response link could not be persisted to the Telegram outbox", input, err)
+			return
+		}
+		if _, err := b.deliverOne(ctx, item); err != nil {
+			b.logWarnInput("long response link remains in the Telegram outbox", input, err)
+		}
+		return
 	}
 	payload, parseMode, err := PrepareAnswer(ctx, answer, b.Publisher)
 	if err != nil {

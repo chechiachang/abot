@@ -65,14 +65,22 @@ type SkillsConfig struct {
 }
 
 type TelegramConfig struct {
-	BotToken           string  `mapstructure:"bot_token"`
-	AdminChatID        int64   `mapstructure:"admin_chat_id"`
-	MorselAPIKey       string  `mapstructure:"morsel_api_key"`
-	MorselPublishURL   string  `mapstructure:"morsel_publish_url"`
-	AllowedUserIDs     []int64 `mapstructure:"allowed_user_ids"`
-	AdminUserIDs       []int64 `mapstructure:"admin_user_ids"`
-	DefaultGroupID     int64   `mapstructure:"default_group_id"`
-	ApprovedChannelIDs []int64 `mapstructure:"approved_channel_ids"`
+	BotToken           string        `mapstructure:"bot_token"`
+	AdminChatID        int64         `mapstructure:"admin_chat_id"`
+	MorselAPIKey       string        `mapstructure:"morsel_api_key"`
+	MorselPublishURL   string        `mapstructure:"morsel_publish_url"`
+	R2AccountID        string        `mapstructure:"r2_account_id"`
+	R2Bucket           string        `mapstructure:"r2_bucket"`
+	R2AccessKeyID      string        `mapstructure:"r2_access_key_id"`
+	R2SecretAccessKey  string        `mapstructure:"r2_secret_access_key"`
+	R2Endpoint         string        `mapstructure:"r2_endpoint"`
+	R2Prefix           string        `mapstructure:"r2_prefix"`
+	R2URLExpiry        time.Duration `mapstructure:"r2_url_expiry"`
+	R2MaxBytes         int64         `mapstructure:"r2_max_bytes"`
+	AllowedUserIDs     []int64       `mapstructure:"allowed_user_ids"`
+	AdminUserIDs       []int64       `mapstructure:"admin_user_ids"`
+	DefaultGroupID     int64         `mapstructure:"default_group_id"`
+	ApprovedChannelIDs []int64       `mapstructure:"approved_channel_ids"`
 }
 
 type MCPConfig struct {
@@ -151,6 +159,14 @@ func NewViper() *viper.Viper {
 		"telegram.admin_chat_id":                 {"ABOT_TELEGRAM_ADMIN_CHAT_ID"},
 		"telegram.morsel_api_key":                {"ABOT_MORSEL_API_KEY", "MORSEL_API_KEY"},
 		"telegram.morsel_publish_url":            {"ABOT_MORSEL_PUBLISH_URL", "MORSEL_PUBLISH_URL"},
+		"telegram.r2_account_id":                 {"ABOT_TELEGRAM_R2_ACCOUNT_ID"},
+		"telegram.r2_bucket":                     {"ABOT_TELEGRAM_R2_BUCKET"},
+		"telegram.r2_access_key_id":              {"ABOT_TELEGRAM_R2_ACCESS_KEY_ID"},
+		"telegram.r2_secret_access_key":          {"ABOT_TELEGRAM_R2_SECRET_ACCESS_KEY"},
+		"telegram.r2_endpoint":                   {"ABOT_TELEGRAM_R2_ENDPOINT"},
+		"telegram.r2_prefix":                     {"ABOT_TELEGRAM_R2_PREFIX"},
+		"telegram.r2_url_expiry":                 {"ABOT_TELEGRAM_R2_URL_EXPIRY"},
+		"telegram.r2_max_bytes":                  {"ABOT_TELEGRAM_R2_MAX_BYTES"},
 		"capabilities.global.tools":              {"ABOT_CAPABILITIES_GLOBAL_TOOLS"},
 		"capabilities.global.models":             {"ABOT_CAPABILITIES_GLOBAL_MODELS"},
 		"capabilities.global.skills":             {"ABOT_CAPABILITIES_GLOBAL_SKILLS"},
@@ -283,7 +299,7 @@ func Load(v *viper.Viper) (Config, error) {
 	if v.InConfig("azure.api_key") || v.InConfig("azure.api-key") {
 		return Config{}, invalid("azure.api_key", "do not store secrets in a config file; use AZURE_OPENAI_API_KEY")
 	}
-	for key, envName := range map[string]string{"telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN"} {
+	for key, envName := range map[string]string{"telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "telegram.r2_access_key_id": "ABOT_TELEGRAM_R2_ACCESS_KEY_ID", "telegram.r2_secret_access_key": "ABOT_TELEGRAM_R2_SECRET_ACCESS_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN"} {
 		if v.InConfig(key) {
 			return Config{}, invalid(key, "do not store secrets in a config file; use "+envName)
 		}
@@ -357,6 +373,26 @@ func (c Config) Validate() error {
 	if c.Azure.BaseURL != "" {
 		if err := validateBaseURL(c.Azure.BaseURL); err != nil {
 			return &Error{Field: "azure.base_url", Cause: err}
+		}
+	}
+	if c.Telegram.R2AccountID != "" || c.Telegram.R2Bucket != "" || c.Telegram.R2AccessKeyID != "" || c.Telegram.R2SecretAccessKey != "" || c.Telegram.R2Endpoint != "" || c.Telegram.R2Prefix != "" || c.Telegram.R2URLExpiry != 0 || c.Telegram.R2MaxBytes != 0 {
+		if c.Telegram.R2AccountID == "" || c.Telegram.R2Bucket == "" || strings.TrimSpace(c.Telegram.R2AccessKeyID) == "" || strings.TrimSpace(c.Telegram.R2SecretAccessKey) == "" {
+			return invalid("telegram.r2", "account ID, bucket, access key ID, and secret access key must be configured together")
+		}
+		if c.Telegram.R2Endpoint != "" {
+			u, err := url.Parse(strings.TrimSpace(c.Telegram.R2Endpoint))
+			if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
+				return invalid("telegram.r2_endpoint", "must be an HTTPS origin without credentials, path, query, or fragment")
+			}
+		}
+		if c.Telegram.R2URLExpiry != 0 && (c.Telegram.R2URLExpiry < time.Minute || c.Telegram.R2URLExpiry > 7*24*time.Hour) {
+			return invalid("telegram.r2_url_expiry", "must be between 1m and 168h")
+		}
+		if c.Telegram.R2MaxBytes != 0 && (c.Telegram.R2MaxBytes < 1 || c.Telegram.R2MaxBytes > 50<<20) {
+			return invalid("telegram.r2_max_bytes", "must be between 1 byte and 50 MiB")
+		}
+		if strings.Contains(c.Telegram.R2Prefix, "..") || strings.ContainsAny(c.Telegram.R2Prefix, "\\?#") {
+			return invalid("telegram.r2_prefix", "contains invalid path characters")
 		}
 	}
 	if c.Telegram.MorselAPIKey != "" && c.Telegram.MorselPublishURL == "" {

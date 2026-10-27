@@ -59,5 +59,6 @@ Pull requests run these checks and a free dependency/code security scan. See [CI
 ## Project guides
 
 - [Deploy with systemd](deploy/README.md)
-- [Implementation task index](docs/tasks/README.md)
+- [Telegram long-response R2 storage](docs/r2-long-responses.md)
+
 - [Project plan](docs/plan.md)
