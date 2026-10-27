@@ -27,6 +27,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+type activeTelegramRun struct {
+	id   string
+	stop func() bool
+}
+
+const stopCallbackPrefix = "stop:"
+
 type Bridge struct {
 	Config    config.Config
 	State     *agentruntime.Store
@@ -37,9 +44,11 @@ type Bridge struct {
 	Quotes    *quotes.Client
 	Logger    *logrus.Logger
 
-	username  string
-	workersMu sync.Mutex
-	workers   map[string]chan struct{}
+	username     string
+	workersMu    sync.Mutex
+	workers      map[string]chan struct{}
+	activeRunsMu sync.Mutex
+	activeRuns   map[string]activeTelegramRun
 }
 
 func (b *Bridge) Run(ctx context.Context) error {
@@ -123,7 +132,9 @@ func (b *Bridge) Run(ctx context.Context) error {
 			fields := telegramUpdateFields(update)
 			b.logInfo("received Telegram bot event", fields)
 			chatID := int64(0)
-			if update.Message != nil {
+			if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
+				chatID = update.CallbackQuery.Message.Chat.ID
+			} else if update.Message != nil {
 				chatID = update.Message.Chat.ID
 			} else if update.ChannelPost != nil {
 				chatID = update.ChannelPost.Chat.ID
@@ -154,7 +165,72 @@ func (b *Bridge) Run(ctx context.Context) error {
 	return nil
 }
 
+func (b *Bridge) handleCallback(ctx context.Context, callback *CallbackQuery) error {
+	if callback == nil || callback.ID == "" {
+		return nil
+	}
+	answer := AnswerCallbackQuery{CallbackQueryID: callback.ID, Text: "This stop button is no longer active."}
+	defer func() {
+		ackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = b.Client.AnswerCallbackQuery(ackCtx, answer)
+	}()
+	if callback.From == nil || callback.Message == nil || !strings.HasPrefix(callback.Data, stopCallbackPrefix) {
+		return nil
+	}
+	policyNow, err := b.policy()
+	if err != nil {
+		return err
+	}
+	senderID, chatID := callback.From.ID, callback.Message.Chat.ID
+	if !policyNow.Authorize(policy.Request{ChatType: callback.Message.Chat.Type, ChatID: chatID, UserID: &senderID}).Allowed {
+		return nil
+	}
+	runID := strings.TrimPrefix(callback.Data, stopCallbackPrefix)
+	if runID == "" || len(runID) > 64 {
+		return nil
+	}
+	b.activeRunsMu.Lock()
+	key := ""
+	var current activeTelegramRun
+	for candidate, active := range b.activeRuns {
+		if strings.HasPrefix(candidate, strconv.FormatInt(chatID, 10)+"\x00") && active.id == runID {
+			key, current = candidate, active
+			break
+		}
+	}
+	if key == "" || !current.stop() {
+		b.activeRunsMu.Unlock()
+		return nil
+	}
+	delete(b.activeRuns, key)
+	b.activeRunsMu.Unlock()
+	answer.Text = "Stopping the current task…"
+	return nil
+}
+
+func (b *Bridge) registerActiveRun(chatID int64, branchID, runID string, stop func() bool) {
+	b.activeRunsMu.Lock()
+	if b.activeRuns == nil {
+		b.activeRuns = make(map[string]activeTelegramRun)
+	}
+	b.activeRuns[turnWorkerKey(strconv.FormatInt(chatID, 10), branchID)] = activeTelegramRun{id: runID, stop: stop}
+	b.activeRunsMu.Unlock()
+}
+
+func (b *Bridge) clearActiveRun(chatID int64, branchID, runID string) {
+	b.activeRunsMu.Lock()
+	key := turnWorkerKey(strconv.FormatInt(chatID, 10), branchID)
+	if current, ok := b.activeRuns[key]; ok && current.id == runID {
+		delete(b.activeRuns, key)
+	}
+	b.activeRunsMu.Unlock()
+}
+
 func (b *Bridge) handleUpdate(ctx context.Context, update Update) error {
+	if update.CallbackQuery != nil {
+		return b.handleCallback(ctx, update.CallbackQuery)
+	}
 	if update.Message == nil {
 		if update.ChannelPost != nil {
 			return b.indexChannelPost(ctx, update.ChannelPost)
@@ -479,6 +555,16 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	b.logInfo("processing queued Telegram turn", fields)
 	statusMessageID, _ := b.sendOutbox(ctx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, Payload: "Working…", ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
 	reporter := newActivityReporter(b, chatID, statusMessageID)
+	reporter.branchID = input.BranchID
+	activeRunID := ""
+	defer func() {
+		if activeRunID != "" {
+			b.clearActiveRun(chatID, input.BranchID, activeRunID)
+		}
+		if reporter.messageID != 0 && reporter.status != "Completed." && reporter.status != "Turn cancelled." {
+			reporter.Finish("Turn stopped.")
+		}
+	}()
 	prompt := input.Text
 	if chatID < 0 {
 		messages, err := b.State.RecentPassiveMessages(ctx, chatID, 10)
@@ -525,14 +611,29 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 			return
 		}
 	}
-	result, err := b.Engine.RunWithMedia(ctx, input.ChatID, chatID, input.UserID, input.BranchID, prompt, mediaParts, reporter.OnEvent)
+	registered := false
+	result, err := b.Engine.RunWithMedia(ctx, input.ChatID, chatID, input.UserID, input.BranchID, prompt, mediaParts, func(event workflow.Event) {
+		if !registered {
+			if turn, activeErr := b.Engine.Turns.ActiveRun(input.ChatID, input.BranchID); activeErr == nil {
+				runID := turn.ID
+				activeRunID = runID
+				b.registerActiveRun(chatID, input.BranchID, runID, func() bool { return b.Engine.Turns.CancelRun(input.ChatID, input.BranchID, runID) })
+				reporter.mu.Lock()
+				reporter.runID = runID
+				reporter.editLocked(true)
+				reporter.mu.Unlock()
+				registered = true
+			}
+		}
+		reporter.OnEvent(event)
+	})
 	if err != nil {
 		failureKind := "agent_error"
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			failureKind = "cancelled"
 		}
 		_ = b.State.CompleteInput(context.Background(), input.ID, failureKind)
-		reporter.Finish("Turn stopped.")
+		reporter.Finish("Turn cancelled.")
 		text := "I couldn't complete that request. Check the local runtime inspector for details."
 		if failureKind == "cancelled" {
 			text = "Turn cancelled. Any interrupted coding side effect may have an uncertain outcome."
@@ -623,6 +724,8 @@ type activityReporter struct {
 	bridge    *Bridge
 	chatID    int64
 	messageID int64
+	runID     string
+	branchID  string
 	mu        sync.Mutex
 	startedAt time.Time
 	lastEdit  time.Time
@@ -634,10 +737,13 @@ type activityReporter struct {
 	stopOnce  sync.Once
 }
 
-func newActivityReporter(bridge *Bridge, chatID, messageID int64) *activityReporter {
+func newActivityReporter(bridge *Bridge, chatID, messageID int64, runID ...string) *activityReporter {
 	r := &activityReporter{
 		bridge: bridge, chatID: chatID, messageID: messageID,
 		startedAt: time.Now(), status: "Working…", stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	if len(runID) > 0 {
+		r.runID = runID[0]
 	}
 	if messageID != 0 {
 		go r.heartbeat()
@@ -735,9 +841,17 @@ func (r *activityReporter) editLocked(force bool) {
 	r.lastEdit, r.lastText = now, text
 	editCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := r.bridge.Client.EditMessage(editCtx, SendMessage{ChatID: r.chatID, Text: RenderHTML(text), ParseMode: "HTML", DisableLinkPreview: true}, r.messageID); err != nil {
+	if err := r.bridge.Client.EditMessage(editCtx, SendMessage{ChatID: r.chatID, Text: RenderHTML(text), ParseMode: "HTML", DisableLinkPreview: true, ReplyMarkup: r.keyboardLocked()}, r.messageID); err != nil {
 		r.bridge.logWarnFields("Telegram progress message update failed", logrus.Fields{"chat_id": r.chatID, "message_id": r.messageID, "error": err})
 	}
+}
+
+func (r *activityReporter) keyboardLocked() *InlineKeyboardMarkup {
+	if r.runID == "" || r.status != "Working…" && r.status != "Working: `coding_agent`…" && r.status != "Planning…" && r.status != "Finishing response…" {
+		return nil
+	}
+	// runID is a UUID; branch is derived from the worker's run registration key separately.
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "⏹ Stop", CallbackData: stopCallbackPrefix + r.runID}}}}
 }
 
 func (r *activityReporter) renderLocked() string {
@@ -925,6 +1039,16 @@ func (b *Bridge) logErrorFields(message string, fields logrus.Fields) {
 
 func telegramUpdateFields(update Update) logrus.Fields {
 	fields := logrus.Fields{"update_id": update.UpdateID, "event_type": "unknown"}
+	if update.CallbackQuery != nil {
+		fields["event_type"] = "callback_query"
+		if update.CallbackQuery.Message != nil {
+			fields["chat_id"] = update.CallbackQuery.Message.Chat.ID
+		}
+		if update.CallbackQuery.From != nil {
+			fields["user_id"] = update.CallbackQuery.From.ID
+		}
+		return fields
+	}
 	message := update.Message
 	if message != nil {
 		fields["event_type"] = "message"

@@ -285,3 +285,61 @@ func TestArticleSourceFailureNeverPublishesPartialContent(t *testing.T) {
 		t.Fatalf("published %d partial articles after source failure", publisher.calls)
 	}
 }
+
+func TestStopCallbackCancelsExactAuthorizedRunAndIgnoresStaleOrUnauthorized(t *testing.T) {
+	state, err := agentruntime.Open(filepath.Join(t.TempDir(), "stop.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	var ack int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bottoken/answerCallbackQuery" {
+			ack++
+			_, _ = fmt.Fprint(w, `{"ok":true,"result":true}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	client, err := NewClientWithHTTP("token", server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := policy.Policy{Version: policy.Version, Telegram: policy.Telegram{AllowedUserIDs: []int64{10}, DefaultGroupID: -100}, Global: policy.Capabilities{Models: []string{"model"}}, Defaults: policy.Selection{Model: "model"}}
+	manager := agentruntime.NewTurnManager()
+	activeCtx, finish, err := manager.Start(context.Background(), "-100", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer finish()
+	run, err := manager.ActiveRun("-100", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := Bridge{State: state, Client: client, Engine: &engine.Engine{State: state, Turns: manager, LoadPolicy: func() (policy.Policy, error) { return current, nil }}, activeRuns: map[string]activeTelegramRun{turnWorkerKey("-100", "main"): {id: run.ID, stop: func() bool { return manager.CancelRun("-100", "main", run.ID) }}}}
+	callback := func(user int64, runID string) Update {
+		return Update{CallbackQuery: &CallbackQuery{ID: "callback", From: &User{ID: user}, Message: &Message{Chat: Chat{ID: -100, Type: "supergroup"}}, Data: "stop:" + runID}}
+	}
+	if err := bridge.handleUpdate(context.Background(), callback(11, run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if activeCtx.Err() != nil {
+		t.Fatal("unauthorized user cancelled active run")
+	}
+	if err := bridge.handleUpdate(context.Background(), callback(10, "old-run")); err != nil {
+		t.Fatal(err)
+	}
+	if activeCtx.Err() != nil {
+		t.Fatal("stale button cancelled active run")
+	}
+	if err := bridge.handleUpdate(context.Background(), callback(10, run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if activeCtx.Err() != context.Canceled {
+		t.Fatalf("active context error=%v", activeCtx.Err())
+	}
+	if ack != 3 {
+		t.Fatalf("callback acknowledgements=%d", ack)
+	}
+}
