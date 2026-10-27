@@ -340,7 +340,14 @@ func TestTurnManagerCancelsOnlyMatchingChatBranch(t *testing.T) {
 	if _, _, err := manager.Start(context.Background(), "chat-a", "main"); !errors.Is(err, ErrActiveTurn) {
 		t.Fatalf("duplicate turn error = %v", err)
 	}
-	if !manager.Cancel("chat-a", "main") || !manager.Active("chat-b", "main") {
+	runA, err := manager.ActiveRun("chat-a", "main")
+	if err != nil || runA.ID == "" {
+		t.Fatalf("active run = %#v, err=%v", runA, err)
+	}
+	if manager.CancelRun("chat-a", "main", "stale-run") {
+		t.Fatal("stale stop cancelled an active run")
+	}
+	if !manager.CancelRun("chat-a", "main", runA.ID) || !manager.Active("chat-b", "main") {
 		t.Fatal("cancel did not target only the requested branch")
 	}
 	if !errors.Is(ctxA.Err(), context.Canceled) || ctxB.Err() != nil {

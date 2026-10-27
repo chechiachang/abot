@@ -98,10 +98,32 @@ type AudioFile struct {
 	FileSize int64  `json:"file_size"`
 }
 
+type CallbackQuery struct {
+	ID      string   `json:"id"`
+	From    *User    `json:"from,omitempty"`
+	Message *Message `json:"message,omitempty"`
+	Data    string   `json:"data,omitempty"`
+}
+
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+}
+
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
+}
+
+type AnswerCallbackQuery struct {
+	CallbackQueryID string `json:"callback_query_id"`
+	Text            string `json:"text,omitempty"`
+}
+
 type Update struct {
-	UpdateID    int64    `json:"update_id"`
-	Message     *Message `json:"message,omitempty"`
-	ChannelPost *Message `json:"channel_post,omitempty"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *Message       `json:"message,omitempty"`
+	ChannelPost   *Message       `json:"channel_post,omitempty"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
 }
 
 type TelegramFile struct {
@@ -116,16 +138,21 @@ type Updates struct {
 }
 
 type SendMessage struct {
-	ChatID             int64  `json:"chat_id"`
-	Text               string `json:"text"`
-	ParseMode          string `json:"parse_mode,omitempty"`
-	ReplyToMessageID   int64  `json:"reply_to_message_id,omitempty"`
-	DisableLinkPreview bool   `json:"disable_web_page_preview,omitempty"`
+	ChatID             int64                 `json:"chat_id"`
+	Text               string                `json:"text"`
+	ParseMode          string                `json:"parse_mode,omitempty"`
+	ReplyToMessageID   int64                 `json:"reply_to_message_id,omitempty"`
+	DisableLinkPreview bool                  `json:"disable_web_page_preview,omitempty"`
+	ReplyMarkup        *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
 type SentMessage struct {
 	MessageID int64 `json:"message_id"`
 	Chat      Chat  `json:"chat"`
+}
+
+func (c *Client) AnswerCallbackQuery(ctx context.Context, answer AnswerCallbackQuery) error {
+	return c.call(ctx, "answerCallbackQuery", answer, nil)
 }
 
 func (c *Client) GetMe(ctx context.Context) (User, error) {

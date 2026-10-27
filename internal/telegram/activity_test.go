@@ -13,14 +13,16 @@ import (
 
 func TestActivityReporterKeepsProgressInSameMessage(t *testing.T) {
 	var edits []string
+	var buttons int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/editMessageText" {
 			t.Errorf("Telegram method path=%q", r.URL.Path)
 		}
 		var request struct {
-			ChatID    int64  `json:"chat_id"`
-			MessageID int64  `json:"message_id"`
-			Text      string `json:"text"`
+			ChatID      int64                 `json:"chat_id"`
+			MessageID   int64                 `json:"message_id"`
+			Text        string                `json:"text"`
+			ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
@@ -29,6 +31,9 @@ func TestActivityReporterKeepsProgressInSameMessage(t *testing.T) {
 			t.Errorf("edited Telegram message = chat %d, message %d", request.ChatID, request.MessageID)
 		}
 		edits = append(edits, request.Text)
+		if request.ReplyMarkup != nil {
+			buttons++
+		}
 		_, _ = w.Write([]byte("{\"ok\":true,\"result\":true}"))
 	}))
 	defer server.Close()
@@ -36,7 +41,8 @@ func TestActivityReporterKeepsProgressInSameMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reporter := newActivityReporter(&Bridge{Client: client}, 123, 456)
+	reporter := newActivityReporter(&Bridge{Client: client}, 123, 456, "run-uuid")
+	reporter.branchID = "main"
 	reporter.OnEvent(workflow.Event{Agent: "coordinator", Partial: true, Text: "private chain of thought"})
 	reporter.OnEvent(workflow.Event{Agent: "coordinator", Tool: "coding_agent", ToolState: "started"})
 	reporter.mu.Lock()

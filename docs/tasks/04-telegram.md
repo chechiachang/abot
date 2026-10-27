@@ -36,3 +36,8 @@ Depends on: 01–03. Gate: bridge routing/delivery must remain separate from age
 - [x] HTML and long-output paths work; missing Morsel configuration produces a clear error.
 - [x] Restart before/after send recovers already-persisted outbox entries without replaying coding tools. The accepted pre-turn/pre-outbox loss windows are not recovery acceptance requirements.
 - [x] Reply forks restore the correct branch and progress; rate limits respect Telegram retry delays.
+
+
+### Emergency stop button
+
+Active progress messages include a **Stop** inline button. The callback is bound to the active run ID and chat, and is accepted only from a sender permitted by the configured Telegram user/chat policy. It cancels the agent turn context immediately (including in-flight tool calls) rather than entering the queued-message worker. Old buttons and callbacks from other chats/runs are ignored. The button is removed when the progress status is finalized. A cancellation may leave a side effect with an uncertain outcome; inspect durable task status before retrying.

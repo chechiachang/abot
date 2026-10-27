@@ -12,18 +12,18 @@ import (
 	"gorm.io/gorm"
 )
 
-type activeTurn struct {
-	id     string
+type ActiveTurn struct {
+	ID     string
 	cancel context.CancelFunc
 }
 
 type TurnManager struct {
 	mu     sync.Mutex
-	active map[string]activeTurn
+	active map[string]ActiveTurn
 }
 
 func NewTurnManager() *TurnManager {
-	return &TurnManager{active: make(map[string]activeTurn)}
+	return &TurnManager{active: make(map[string]ActiveTurn)}
 }
 
 func (m *TurnManager) Start(parent context.Context, chatID, branchID string) (context.Context, func(), error) {
@@ -38,13 +38,13 @@ func (m *TurnManager) Start(parent context.Context, chatID, branchID string) (co
 		cancel()
 		return nil, nil, ErrActiveTurn
 	}
-	m.active[key] = activeTurn{id: id, cancel: cancel}
+	m.active[key] = ActiveTurn{ID: id, cancel: cancel}
 	m.mu.Unlock()
 	var once sync.Once
 	finish := func() {
 		once.Do(func() {
 			m.mu.Lock()
-			if current, exists := m.active[key]; exists && current.id == id {
+			if current, exists := m.active[key]; exists && current.ID == id {
 				delete(m.active, key)
 			}
 			m.mu.Unlock()
@@ -52,6 +52,34 @@ func (m *TurnManager) Start(parent context.Context, chatID, branchID string) (co
 		})
 	}
 	return ctx, finish, nil
+}
+
+func (m *TurnManager) ActiveRun(chatID, branchID string) (ActiveTurn, error) {
+	if m == nil {
+		return ActiveTurn{}, ErrActiveTurn
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, ok := m.active[turnKey(chatID, branchID)]
+	if !ok {
+		return ActiveTurn{}, ErrActiveTurn
+	}
+	return ActiveTurn{ID: current.ID}, nil
+}
+
+func (m *TurnManager) CancelRun(chatID, branchID, runID string) bool {
+	if m == nil || chatID == "" || branchID == "" || runID == "" {
+		return false
+	}
+	m.mu.Lock()
+	current, ok := m.active[turnKey(chatID, branchID)]
+	if ok && current.ID == runID {
+		current.cancel()
+	} else {
+		ok = false
+	}
+	m.mu.Unlock()
+	return ok
 }
 
 func (m *TurnManager) Cancel(chatID, branchID string) bool {
