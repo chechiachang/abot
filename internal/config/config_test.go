@@ -52,6 +52,28 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 }
 
+func TestExampleConfigLoadsWithR2Disabled(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, key := range []string{
+		"ABOT_TELEGRAM_R2_ACCOUNT_ID", "ABOT_TELEGRAM_R2_BUCKET", "ABOT_TELEGRAM_R2_ACCESS_KEY_ID",
+		"ABOT_TELEGRAM_R2_SECRET_ACCESS_KEY", "ABOT_TELEGRAM_R2_ENDPOINT", "ABOT_TELEGRAM_R2_PREFIX",
+		"ABOT_TELEGRAM_R2_URL_EXPIRY", "ABOT_TELEGRAM_R2_MAX_BYTES",
+	} {
+		t.Setenv(key, "")
+	}
+	v := NewViper()
+	v.Set("config", filepath.Join("..", "..", "config.example.yaml"))
+	cfg, err := Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Telegram.R2AccountID != "" || cfg.Telegram.R2Bucket != "" || cfg.Telegram.R2Prefix != "" || cfg.Telegram.R2URLExpiry != 0 || cfg.Telegram.R2MaxBytes != 0 {
+		t.Fatalf("example unexpectedly enables R2: %#v", cfg.Telegram)
+	}
+}
+
 func TestLoadRejectsUnsupportedReasoningEffort(t *testing.T) {
 	t.Setenv("ABOT_AZURE_REASONING_EFFORT", "extreme")
 	if _, err := Load(NewViper()); err == nil {

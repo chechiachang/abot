@@ -246,6 +246,80 @@ func TestPublishedLinkEscapesHTMLAndRejectsUnsafeTargets(t *testing.T) {
 	}
 }
 
+func TestShouldSendInlineAnswerKeepsMorselFallbackWhenR2Disabled(t *testing.T) {
+	for _, tc := range []struct {
+		length int
+		r2     bool
+		want   bool
+	}{
+		{length: LongOutputThreshold, want: true},
+		{length: LongOutputThreshold + 1, want: false},
+		{length: LongOutputThreshold + 1, r2: true, want: true},
+		{length: TelegramTextLimit, want: false},
+		{length: TelegramTextLimit, r2: true, want: true},
+		{length: TelegramTextLimit + 1, r2: true, want: false},
+	} {
+		if got := shouldSendInlineAnswer(strings.Repeat("x", tc.length), tc.r2); got != tc.want {
+			t.Errorf("shouldSendInlineAnswer(%d, %t) = %t, want %t", tc.length, tc.r2, got, tc.want)
+		}
+	}
+}
+
+func TestDeliverOneSignsPersistedR2LocatorAtSendTime(t *testing.T) {
+	ctx := context.Background()
+	state, err := agentruntime.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+
+	store := &fakeR2{link: "https://r2.example/responses_for_users/(part).txt?X-Amz-Date=now&X-Amz-Signature=sig"}
+	var sent SendMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottoken/sendMessage" {
+			t.Errorf("Telegram method path=%q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Error(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{
+			"message_id": 901, "chat": map[string]any{"id": 42, "type": "private"},
+		}})
+	}))
+	defer server.Close()
+	client, err := NewClientWithHTTP("token", server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge := Bridge{State: state, Client: client, R2: newR2Uploader(store, "bucket", "", 15*time.Minute, 100)}
+
+	queued, err := state.EnqueueOutbox(ctx, agentruntime.Outbox{
+		ChatID: 42, Payload: "This response is too long for Telegram.", ParseMode: "HTML",
+		R2ObjectLocator: "bucket/responses_for_users/obj.txt", R2URLExpirySeconds: 900,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := state.PendingOutbox(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].R2ObjectLocator != queued.R2ObjectLocator || pending[0].R2URLExpirySeconds != 900 {
+		t.Fatalf("persisted outbox=%#v err=%v", pending, err)
+	}
+	if _, err := bridge.deliverOne(ctx, pending[0]); err != nil {
+		t.Fatal(err)
+	}
+	wantHref := `href="https://r2.example/responses_for_users/(part).txt?X-Amz-Date=now&amp;X-Amz-Signature=sig"`
+	if sent.ParseMode != "HTML" || !strings.Contains(sent.Text, wantHref) {
+		t.Fatalf("sent Telegram message=%#v; want href %q", sent, wantHref)
+	}
+	if store.locator != queued.R2ObjectLocator || store.expiry != 15*time.Minute {
+		t.Fatalf("presigned locator=%q expiry=%s", store.locator, store.expiry)
+	}
+	delivered, err := state.OutboxByMessageID(ctx, 42, 901)
+	if err != nil || strings.Contains(delivered.Payload, "X-Amz") || delivered.R2ObjectLocator != queued.R2ObjectLocator {
+		t.Fatalf("stored outbox payload=%q locator=%q err=%v", delivered.Payload, delivered.R2ObjectLocator, err)
+	}
+}
+
 type countingArticlePublisher struct{ calls int }
 
 func (p *countingArticlePublisher) Publish(context.Context, string, string) (string, error) {

@@ -116,6 +116,14 @@ func RenderHTML(text string) string {
 	return out.String()
 }
 
+func renderHTMLLink(label, raw string) (string, error) {
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme != "https" || target.Hostname() == "" || target.User != nil || target.Opaque != "" {
+		return "", fmt.Errorf("link must be a valid HTTPS URL")
+	}
+	return `<a href="` + html.EscapeString(target.String()) + `">` + html.EscapeString(label) + `</a>`, nil
+}
+
 func safeLink(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && u.User == nil

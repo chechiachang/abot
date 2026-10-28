@@ -26,35 +26,39 @@ func (f *fakeR2) PresignGet(_ context.Context, locator string, expiry time.Durat
 	f.locator, f.expiry = locator, expiry
 	return f.link, nil
 }
-func TestR2UploaderPublishesRandomObject(t *testing.T) {
+func TestR2UploaderStoresRandomObjectAndSignsOnDemand(t *testing.T) {
 	f := &fakeR2{link: "https://example.test/signed"}
 	u := newR2Uploader(f, "bucket", "abot", 20*time.Minute, 100)
-	got, err := u.Publish(context.Background(), "long content")
+	first, err := u.Store(context.Background(), "long content")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != f.link || string(f.content) != "long content" || f.contentType != "text/plain; charset=utf-8" || f.expiry != 20*time.Minute {
+	if string(f.content) != "long content" || f.contentType != "text/plain; charset=utf-8" {
 		t.Fatalf("unexpected upload %#v", f)
 	}
-	first := f.locator
-	if !strings.HasPrefix(first, "bucket/abot/") {
-		t.Fatalf("locator %q", first)
+	if !strings.HasPrefix(first, "bucket/abot/") || first != f.locator {
+		t.Fatalf("locator %q; stored %q", first, f.locator)
 	}
-	if _, err := u.Publish(context.Background(), "long content"); err != nil {
+	got, err := u.Presign(context.Background(), first, 20*time.Minute)
+	if err != nil || got != f.link || f.expiry != 20*time.Minute {
+		t.Fatalf("signed link=%q expiry=%s err=%v", got, f.expiry, err)
+	}
+	second, err := u.Store(context.Background(), "long content")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if first == f.locator {
+	if first == second {
 		t.Fatal("keys not random")
 	}
 }
 func TestR2UploaderLimitsAndSafeErrors(t *testing.T) {
 	f := &fakeR2{putErr: errors.New("credential leaked")}
 	u := newR2Uploader(f, "bucket", "", time.Minute, 3)
-	if _, err := u.Publish(context.Background(), "four"); err == nil || !strings.Contains(err.Error(), "size limit") {
+	if _, err := u.Store(context.Background(), "four"); err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("error %v", err)
 	}
 	u.maxBytes = 10
-	if _, err := u.Publish(context.Background(), "fine"); err == nil || strings.Contains(err.Error(), "credential") {
+	if _, err := u.Store(context.Background(), "fine"); err == nil || strings.Contains(err.Error(), "credential") {
 		t.Fatalf("unsafe error %v", err)
 	}
 }

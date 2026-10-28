@@ -17,14 +17,14 @@ logfire:
 telegram:
   admin_chat_id: 0
   allowed_user_ids: []
-  # Long Telegram responses use private R2 objects and expiring presigned links.
+  # R2 is optional; set account/bucket and credentials before enabling it.
   r2_account_id: ""
   r2_bucket: ""
   morsel_publish_url: ""
-  r2_endpoint: ""
-  r2_prefix: abot/responses
-  r2_url_expiry: 15m
-  r2_max_bytes: 5242880
+  # r2_endpoint: ""
+  # r2_prefix: abot/responses
+  # r2_url_expiry: 15m
+  # r2_max_bytes: 5242880
   admin_user_ids: []
   default_group_id: 0
   approved_channel_ids: []

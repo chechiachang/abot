@@ -14,7 +14,6 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 const defaultR2MaxBytes int64 = 5 << 20
@@ -90,7 +89,7 @@ func newR2Uploader(store R2ObjectStore, bucket, prefix string, expiry time.Durat
 	return &R2Uploader{store: store, bucket: bucket, prefix: prefix, expiry: expiry, maxBytes: maxBytes}
 }
 
-func (u *R2Uploader) Publish(ctx context.Context, text string) (string, error) {
+func (u *R2Uploader) Store(ctx context.Context, text string) (string, error) {
 	if u == nil || u.store == nil || u.bucket == "" {
 		return "", errors.New("long-response storage is not configured")
 	}
@@ -106,10 +105,25 @@ func (u *R2Uploader) Publish(ctx context.Context, text string) (string, error) {
 	if u.prefix != "" {
 		key = u.prefix + "/" + key
 	}
-	if err := u.store.Put(ctx, u.bucket+"/"+key, []byte(body), "text/plain; charset=utf-8"); err != nil {
+	locator := u.bucket + "/" + key
+	if err := u.store.Put(ctx, locator, body, "text/plain; charset=utf-8"); err != nil {
 		return "", errors.New("could not upload long response")
 	}
-	link, err := u.store.PresignGet(ctx, u.bucket+"/"+key, u.expiry)
+	return locator, nil
+}
+
+func (u *R2Uploader) Presign(ctx context.Context, locator string, expiry time.Duration) (string, error) {
+	if u == nil || u.store == nil {
+		return "", errors.New("long-response storage is not configured")
+	}
+	bucket, key, err := splitObjectLocator(locator)
+	if err != nil || bucket != u.bucket || (u.prefix != "" && !strings.HasPrefix(key, u.prefix+"/")) {
+		return "", errors.New("invalid long-response object locator")
+	}
+	if expiry < time.Minute || expiry > 7*24*time.Hour {
+		return "", errors.New("R2 presigned URL expiry must be between 1m and 168h")
+	}
+	link, err := u.store.PresignGet(ctx, locator, expiry)
 	if err != nil {
 		return "", errors.New("could not create long-response link")
 	}
@@ -124,7 +138,7 @@ func (s *s3ObjectStore) Put(ctx context.Context, locator string, body []byte, co
 	if err != nil {
 		return err
 	}
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key), Body: bytes.NewReader(body), ContentType: aws.String(contentType), ServerSideEncryption: types.ServerSideEncryptionAes256})
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key), Body: bytes.NewReader(body), ContentType: aws.String(contentType)})
 	if err != nil {
 		return errors.New("R2 object upload failed")
 	}
