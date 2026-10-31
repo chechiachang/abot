@@ -726,6 +726,7 @@ type activityReporter struct {
 	lastEdit  time.Time
 	lastText  string
 	status    string
+	finished  bool
 	progress  []string
 	stop      chan struct{}
 	done      chan struct{}
@@ -842,7 +843,7 @@ func (r *activityReporter) editLocked(force bool) {
 }
 
 func (r *activityReporter) keyboardLocked() *InlineKeyboardMarkup {
-	if r.runID == "" || r.status != "Working…" && r.status != "Working: `coding_agent`…" && r.status != "Planning…" && r.status != "Finishing response…" {
+	if r.runID == "" || r.finished {
 		return nil
 	}
 	// runID is a UUID; branch is derived from the worker's run registration key separately.
@@ -866,6 +867,7 @@ func (r *activityReporter) Finish(text string) {
 		<-r.done
 	}
 	r.mu.Lock()
+	r.finished = true
 	r.status = text
 	r.editLocked(true)
 	r.mu.Unlock()
