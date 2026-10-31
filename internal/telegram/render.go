@@ -9,32 +9,40 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	LongOutputThreshold = 1000
-	TelegramTextLimit   = 4096
-)
+// TelegramTextLimit is Telegram Bot API's sendMessage maximum (4096 characters
+// after entities parsing). Count Unicode code points, not UTF-8 bytes.
+// See https://core.telegram.org/bots/api#sendmessage
+const TelegramTextLimit = 4096
+
+// LongOutputThreshold is the preferred mobile-reading length, not an API limit.
+// Responses longer than this are linked rather than placed inline. This
+// conservative threshold considers iPhone screen/reading experience; Apple
+// publishes layout guidance rather than a text-character cap:
+// https://developer.apple.com/design/human-interface-guidelines/typography
+const LongOutputThreshold = 1000
 
 type Publisher interface {
 	Publish(context.Context, string, string) (string, error)
 }
 
 func PrepareAnswer(ctx context.Context, text string, publisher Publisher) (string, string, error) {
-	if utf8.RuneCountInString(text) > LongOutputThreshold {
+	count := utf8.RuneCountInString(text)
+	if count > LongOutputThreshold {
 		if publisher == nil {
-			return "", "", fmt.Errorf("response exceeds %d characters; configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to publish long output", LongOutputThreshold)
+			return "", "", fmt.Errorf("response exceeds the %d-character inline UX threshold; configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to publish long output", LongOutputThreshold)
 		}
 		link, err := publisher.Publish(ctx, "abot response", text)
 		if err != nil {
-			return "", "", fmt.Errorf("publish long response to Morsel: %w", err)
+			return "", "", fmt.Errorf("publish long response: %w", err)
 		}
 		target, err := url.Parse(link)
 		if err != nil || target.Scheme != "https" || target.Hostname() == "" || target.User != nil {
-			return "", "", fmt.Errorf("Morsel returned an invalid public HTTPS URL")
+			return "", "", fmt.Errorf("publisher returned an invalid public HTTPS URL")
 		}
 		return `<a href="` + html.EscapeString(target.String()) + `">Open the full response</a>`, "HTML", nil
 	}
-	if utf8.RuneCountInString(text) > TelegramTextLimit {
-		return "", "", fmt.Errorf("response exceeds Telegram's %d-character message limit", TelegramTextLimit)
+	if count > TelegramTextLimit {
+		return "", "", fmt.Errorf("response exceeds Telegram's %d-character hard limit", TelegramTextLimit)
 	}
 	return RenderHTML(text), "HTML", nil
 }

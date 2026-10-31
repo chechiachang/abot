@@ -36,15 +36,16 @@ type activeTelegramRun struct {
 const stopCallbackPrefix = "stop:"
 
 type Bridge struct {
-	Config    config.Config
-	State     *agentruntime.Store
-	Engine    *engine.Engine
-	Media     *media.Store
-	Client    *Client
-	Publisher Publisher
-	R2        *R2Uploader
-	Quotes    *quotes.Client
-	Logger    *logrus.Logger
+	Config                  config.Config
+	State                   *agentruntime.Store
+	Engine                  *engine.Engine
+	Media                   *media.Store
+	Client                  *Client
+	Publisher               Publisher
+	R2                      *R2Uploader
+	ResponseInlineThreshold int
+	Quotes                  *quotes.Client
+	Logger                  *logrus.Logger
 
 	username     string
 	workersMu    sync.Mutex
@@ -706,9 +707,12 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 			answer += "\n\nCompleted progress:\n" + strings.Join(completed, "\n")
 		}
 	}
-	if utf8.RuneCountInString(answer) <= TelegramTextLimit {
+	if b.Config.Telegram.ResponseInlineThreshold == 0 {
+		b.Config.Telegram.ResponseInlineThreshold = config.DefaultTelegramResponseInlineThreshold
+	}
+	if utf8.RuneCountInString(answer) <= b.Config.Telegram.ResponseInlineThreshold {
 		payload := RenderHTML(answer)
-		queueCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		queueCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		defer cancel()
 		item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: "HTML", ReplyToMessageID: input.ReplyToMessageID})
 		if err != nil {

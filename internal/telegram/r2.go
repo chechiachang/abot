@@ -19,6 +19,8 @@ import (
 
 const defaultR2MaxBytes int64 = 5 << 20
 
+const defaultLongResponseUXThreshold = 1000
+
 type R2Config struct {
 	AccountID       string
 	Bucket          string

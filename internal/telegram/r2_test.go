@@ -38,7 +38,7 @@ func TestR2UploaderPublishesRandomObject(t *testing.T) {
 	}
 	first := f.locator
 	if !strings.HasPrefix(first, "bucket/abot/") {
-		t.Fatalf("locator %q", first)
+		t.Fatalf("locator %q", f.locator)
 	}
 	if _, err := u.Publish(context.Background(), "long content"); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,50 @@ func TestR2UploaderLimitsAndSafeErrors(t *testing.T) {
 		t.Fatalf("unsafe error %v", err)
 	}
 }
-func TestTelegramMessageLimitCountsCharacters(t *testing.T) {
-	if utf8.RuneCountInString(strings.Repeat("🙂", 4096)) != TelegramTextLimit {
-		t.Fatal("message limit mismatch")
+
+func TestResponseLengthsUseCodePoints(t *testing.T) {
+	if got := utf8.RuneCountInString(strings.Repeat("🙂", TelegramTextLimit)); got != TelegramTextLimit {
+		t.Fatalf("emoji counted as %d characters; want %d", got, TelegramTextLimit)
 	}
+	if got := len(strings.Repeat("🙂", TelegramTextLimit)); got == TelegramTextLimit {
+		t.Fatal("test must demonstrate UTF-8 byte count differs from code-point count")
+	}
+}
+
+func TestPrepareAnswerUXAndHardLimitBoundaries(t *testing.T) {
+	tests := []struct {
+		name     string
+		length   int
+		wantLink bool
+	}{
+		{"at UX threshold stays inline", LongOutputThreshold, false},
+		{"above UX threshold offloads", LongOutputThreshold + 1, true},
+		{"at hard max offloads before Telegram", TelegramTextLimit, true},
+		{"above hard max also offloads", TelegramTextLimit + 1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &testPublisher{link: "https://example.test/full"}
+			got, _, err := PrepareAnswer(context.Background(), strings.Repeat("a", tt.length), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantLink && (p.calls != 1 || !strings.Contains(got, p.link)) {
+				t.Fatalf("did not offload at %d: calls=%d output=%q", tt.length, p.calls, got)
+			}
+			if !tt.wantLink && (p.calls != 0 || utf8.RuneCountInString(got) != tt.length) {
+				t.Fatalf("unexpected inline output: calls=%d length=%d", p.calls, utf8.RuneCountInString(got))
+			}
+		})
+	}
+}
+
+type testPublisher struct {
+	link  string
+	calls int
+}
+
+func (p *testPublisher) Publish(_ context.Context, _, _ string) (string, error) {
+	p.calls++
+	return p.link, nil
 }

@@ -14,6 +14,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+const TelegramResponseHardLimit = 4096
+const DefaultTelegramResponseInlineThreshold = 1000
+
 type Config struct {
 	Azure        AzureConfig                   `mapstructure:"azure"`
 	Coding       CodingConfig                  `mapstructure:"coding"`
@@ -65,22 +68,23 @@ type SkillsConfig struct {
 }
 
 type TelegramConfig struct {
-	BotToken           string        `mapstructure:"bot_token"`
-	AdminChatID        int64         `mapstructure:"admin_chat_id"`
-	MorselAPIKey       string        `mapstructure:"morsel_api_key"`
-	MorselPublishURL   string        `mapstructure:"morsel_publish_url"`
-	R2AccountID        string        `mapstructure:"r2_account_id"`
-	R2Bucket           string        `mapstructure:"r2_bucket"`
-	R2AccessKeyID      string        `mapstructure:"r2_access_key_id"`
-	R2SecretAccessKey  string        `mapstructure:"r2_secret_access_key"`
-	R2Endpoint         string        `mapstructure:"r2_endpoint"`
-	R2Prefix           string        `mapstructure:"r2_prefix"`
-	R2URLExpiry        time.Duration `mapstructure:"r2_url_expiry"`
-	R2MaxBytes         int64         `mapstructure:"r2_max_bytes"`
-	AllowedUserIDs     []int64       `mapstructure:"allowed_user_ids"`
-	AdminUserIDs       []int64       `mapstructure:"admin_user_ids"`
-	DefaultGroupID     int64         `mapstructure:"default_group_id"`
-	ApprovedChannelIDs []int64       `mapstructure:"approved_channel_ids"`
+	BotToken                string        `mapstructure:"bot_token"`
+	AdminChatID             int64         `mapstructure:"admin_chat_id"`
+	MorselAPIKey            string        `mapstructure:"morsel_api_key"`
+	MorselPublishURL        string        `mapstructure:"morsel_publish_url"`
+	ResponseInlineThreshold int           `mapstructure:"response_inline_threshold"`
+	R2AccountID             string        `mapstructure:"r2_account_id"`
+	R2Bucket                string        `mapstructure:"r2_bucket"`
+	R2AccessKeyID           string        `mapstructure:"r2_access_key_id"`
+	R2SecretAccessKey       string        `mapstructure:"r2_secret_access_key"`
+	R2Endpoint              string        `mapstructure:"r2_endpoint"`
+	R2Prefix                string        `mapstructure:"r2_prefix"`
+	R2URLExpiry             time.Duration `mapstructure:"r2_url_expiry"`
+	R2MaxBytes              int64         `mapstructure:"r2_max_bytes"`
+	AllowedUserIDs          []int64       `mapstructure:"allowed_user_ids"`
+	AdminUserIDs            []int64       `mapstructure:"admin_user_ids"`
+	DefaultGroupID          int64         `mapstructure:"default_group_id"`
+	ApprovedChannelIDs      []int64       `mapstructure:"approved_channel_ids"`
 }
 
 type MCPConfig struct {
@@ -159,6 +163,7 @@ func NewViper() *viper.Viper {
 		"telegram.admin_chat_id":                 {"ABOT_TELEGRAM_ADMIN_CHAT_ID"},
 		"telegram.morsel_api_key":                {"ABOT_MORSEL_API_KEY", "MORSEL_API_KEY"},
 		"telegram.morsel_publish_url":            {"ABOT_MORSEL_PUBLISH_URL", "MORSEL_PUBLISH_URL"},
+		"telegram.response_inline_threshold":     {"ABOT_TELEGRAM_RESPONSE_INLINE_THRESHOLD"},
 		"telegram.r2_account_id":                 {"ABOT_TELEGRAM_R2_ACCOUNT_ID"},
 		"telegram.r2_bucket":                     {"ABOT_TELEGRAM_R2_BUCKET"},
 		"telegram.r2_access_key_id":              {"ABOT_TELEGRAM_R2_ACCESS_KEY_ID"},
@@ -216,6 +221,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("instructions.system_file", "SYSTEM.md")
 	v.SetDefault("instructions.soul_file", "SOUL.md")
 	v.SetDefault("log.level", "info")
+	v.SetDefault("telegram.response_inline_threshold", 1000)
 	v.SetDefault("runtime.turn_timeout", 10*time.Minute)
 	if path, err := defaultConfigPath(); err == nil {
 		v.SetDefault("policy_file", filepath.Join(filepath.Dir(path), "policy.json"))
@@ -374,6 +380,12 @@ func (c Config) Validate() error {
 		if err := validateBaseURL(c.Azure.BaseURL); err != nil {
 			return &Error{Field: "azure.base_url", Cause: err}
 		}
+	}
+	if c.Telegram.ResponseInlineThreshold == 0 {
+		c.Telegram.ResponseInlineThreshold = DefaultTelegramResponseInlineThreshold
+	}
+	if c.Telegram.ResponseInlineThreshold < 1 || c.Telegram.ResponseInlineThreshold >= TelegramResponseHardLimit {
+		return invalid("telegram.response_inline_threshold", "must be between 1 and 4095 characters (below Telegram's 4096-character hard limit)")
 	}
 	if c.Telegram.R2AccountID != "" || c.Telegram.R2Bucket != "" || c.Telegram.R2AccessKeyID != "" || c.Telegram.R2SecretAccessKey != "" || c.Telegram.R2Endpoint != "" || c.Telegram.R2Prefix != "" || c.Telegram.R2URLExpiry != 0 || c.Telegram.R2MaxBytes != 0 {
 		if c.Telegram.R2AccountID == "" || c.Telegram.R2Bucket == "" || strings.TrimSpace(c.Telegram.R2AccessKeyID) == "" || strings.TrimSpace(c.Telegram.R2SecretAccessKey) == "" {

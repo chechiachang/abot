@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chechiachang/abot/internal/policy"
 	"github.com/spf13/pflag"
@@ -148,5 +149,23 @@ func TestValidateMCPRejectsUnconfiguredPolicyAndEmbeddedEndpointCredentials(t *t
 	base.MCP.Connections = []MCPConnection{{Name: "http", Transport: "http", Endpoint: "https://user:secret@example.test/mcp"}}
 	if err := base.ValidateMCP(); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("embedded credentials error = %v", err)
+	}
+}
+
+func TestTelegramResponseInlineThresholdValidation(t *testing.T) {
+	base := Config{Log: LogConfig{Level: "info"}, Azure: AzureConfig{Timeout: 1, MaxRetries: 0}, Coding: CodingConfig{CommandTimeout: 1, MaxOutputBytes: 1}, Runtime: RuntimeConfig{TurnTimeout: 1}, Media: MediaConfig{Root: ".", MaxBytes: 1024, MaxDuration: time.Second, MaxPages: 1, MaxExtractBytes: 1024, Retention: time.Hour}, URLReader: URLReaderConfig{Timeout: time.Second, MaxBytes: 1024, MaxOutputBytes: 1024, MaxRedirects: 0}, Instructions: InstructionConfig{SystemFile: "SYSTEM.md"}, Capabilities: policy.ConfiguredCapabilities{Global: policy.Capabilities{Models: []string{"m"}, Tools: []string{"read"}}, Defaults: policy.Selection{Model: "m", Tools: []string{"read"}}}}
+	for _, value := range []int{1, 1000, TelegramResponseHardLimit - 1} {
+		cfg := base
+		cfg.Telegram.ResponseInlineThreshold = value
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("threshold %d should validate: %v", value, err)
+		}
+	}
+	for _, value := range []int{-1, TelegramResponseHardLimit, TelegramResponseHardLimit + 1} {
+		cfg := base
+		cfg.Telegram.ResponseInlineThreshold = value
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "response_inline_threshold") {
+			t.Errorf("threshold %d: expected response threshold validation error; got %v", value, err)
+		}
 	}
 }
