@@ -230,15 +230,20 @@ func (c *Client) SendMessage(ctx context.Context, message SendMessage) (SentMess
 }
 
 type editMessage struct {
-	ChatID             int64  `json:"chat_id"`
-	MessageID          int64  `json:"message_id"`
-	Text               string `json:"text"`
-	ParseMode          string `json:"parse_mode,omitempty"`
-	DisableLinkPreview bool   `json:"disable_web_page_preview,omitempty"`
+	ChatID             int64                 `json:"chat_id"`
+	MessageID          int64                 `json:"message_id"`
+	Text               string                `json:"text"`
+	ParseMode          string                `json:"parse_mode,omitempty"`
+	DisableLinkPreview bool                  `json:"disable_web_page_preview,omitempty"`
+	ReplyMarkup        *InlineKeyboardMarkup `json:"reply_markup"`
 }
 
 func (c *Client) EditMessage(ctx context.Context, message SendMessage, messageID int64) error {
-	return c.call(ctx, "editMessageText", editMessage{ChatID: message.ChatID, MessageID: messageID, Text: message.Text, ParseMode: message.ParseMode, DisableLinkPreview: message.DisableLinkPreview}, nil)
+	markup := message.ReplyMarkup
+	if markup == nil {
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
+	}
+	return c.call(ctx, "editMessageText", editMessage{ChatID: message.ChatID, MessageID: messageID, Text: message.Text, ParseMode: message.ParseMode, DisableLinkPreview: message.DisableLinkPreview, ReplyMarkup: markup}, nil)
 }
 
 func (c *Client) call(ctx context.Context, method string, params any, result any) error {
