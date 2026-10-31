@@ -43,6 +43,12 @@ mcp:
       environment: [FIRECRAWL_API_KEY]
       timeout: 45s
       max_retries: 1
+# Connection settings only; R2 upload/sharing is not implemented yet.
+r2:
+  endpoint: https://664e4225fa00f97af165b5562ae199a9.r2.cloudflarestorage.com
+  bucket: abot-share
+  region: auto
+  presign_expiry: 1h
 media:
   max_bytes: 10485760
   max_duration: 5m

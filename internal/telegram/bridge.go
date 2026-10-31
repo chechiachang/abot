@@ -58,7 +58,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 		return errors.New("Telegram bridge requires runtime, agent engine, and Bot API client")
 	}
 	if b.Logger == nil {
-		b.Logger = logging.New(b.Config.Azure.APIKey, b.Config.Telegram.BotToken, b.Config.Telegram.MorselAPIKey, b.Config.URLReader.FirecrawlAPIKey, b.Config.Logfire.Token)
+		b.Logger = logging.New(b.Config.Azure.APIKey, b.Config.Telegram.BotToken, b.Config.Telegram.MorselAPIKey, b.Config.URLReader.FirecrawlAPIKey, b.Config.Logfire.Token, b.Config.R2.AccessKeyID, b.Config.R2.SecretAccessKey)
 	}
 	if b.Engine.Turns == nil {
 		b.Engine.Turns = agentruntime.NewTurnManager()

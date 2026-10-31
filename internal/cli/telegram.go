@@ -48,7 +48,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 			if _, err := current.Effective(0); err != nil {
 				return err
 			}
-			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token)
+			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token, cfg.R2.AccessKeyID, cfg.R2.SecretAccessKey)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
 			stopTracing := configureTracing(cmd.Context(), cfg, logger)
