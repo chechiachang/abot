@@ -17,7 +17,7 @@ abot brings a practical agent workflow to the places you work: chat with it, giv
 
 ## Get started
 
-Requires **Go 1.26.5** and an Azure OpenAI deployment.
+Requires **Go 1.26.10** and an Azure OpenAI deployment.
 
 ```sh
 git clone https://github.com/chechiachang/abot.git

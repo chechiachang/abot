@@ -58,3 +58,36 @@ func TestLoadRejectsR2CredentialsInConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestR2OptionalExampleAndValidation(t *testing.T) {
+	t.Setenv("ABOT_AZURE_MODEL", "test-model")
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
+	v := NewViper()
+	v.Set("config", "../../config.example.yaml")
+	cfg, err := Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.Telegram.ResponseInlineThreshold != 1000 {
+		t.Fatal("invalid optional defaults")
+	}
+	cfg.R2.AccessKeyID = "private-value"
+	if err := cfg.Validate(); err == nil || strings.Contains(err.Error(), "private-value") {
+		t.Fatalf("partial credentials error=%v", err)
+	}
+	cfg.R2.AccessKeyID = ""
+	for _, max := range []int64{0, -1, 50<<20 + 1} {
+		cfg.R2.MaxBytes = max
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("accepted max=%d", max)
+		}
+	}
+	cfg.R2.MaxBytes = 5 << 20
+	for _, threshold := range []int{0, -1, 3501} {
+		cfg.Telegram.ResponseInlineThreshold = threshold
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("accepted threshold=%d", threshold)
+		}
+	}
+}

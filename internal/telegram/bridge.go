@@ -41,6 +41,7 @@ type Bridge struct {
 	Media     *media.Store
 	Client    *Client
 	Publisher Publisher
+	R2        *R2Uploader
 	Quotes    *quotes.Client
 	Logger    *logrus.Logger
 
@@ -704,13 +705,7 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 			answer += "\n\nCompleted progress:\n" + strings.Join(completed, "\n")
 		}
 	}
-	payload, parseMode, err := PrepareAnswer(ctx, answer, b.Publisher)
-	if err != nil {
-		payload, parseMode = RenderHTML("This response is too long for Telegram. Configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to deliver long output."), "HTML"
-	}
-	queueCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	item, err := b.State.EnqueueOutbox(queueCtx, agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID, CheckpointEventID: result.EventID, Payload: payload, ParseMode: parseMode, ReplyToMessageID: input.ReplyToMessageID})
+	item, err := b.queueAnswer(ctx, input, result.EventID, answer)
 	if err != nil {
 		b.logWarnInput("agent response could not be persisted to the Telegram outbox", input, err)
 		return
@@ -957,11 +952,32 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 		}
 		return 0, err
 	}
-	sent, err := b.Client.SendMessage(ctx, SendMessage{ChatID: item.ChatID, Text: item.Payload, ParseMode: item.ParseMode, ReplyToMessageID: item.ReplyToMessageID, DisableLinkPreview: true})
+	payload, parseMode := item.Payload, item.ParseMode
+	if item.R2ObjectLocator != "" {
+		remaining := time.Until(item.R2ObjectExpiresAt)
+		if remaining < time.Second {
+			payload, parseMode = "This response has expired. Please ask again to generate a new response.", ""
+		} else {
+			if b.R2 == nil {
+				return 0, b.recordDeliveryFailure(span, item, "r2_not_configured", errors.New("R2 is required for pending response delivery"), false)
+			}
+			expiry := min(time.Duration(item.R2URLExpirySeconds)*time.Second, remaining.Truncate(time.Second))
+			link, err := b.R2.Presign(ctx, item.R2ObjectLocator, expiry)
+			if err != nil {
+				return 0, b.recordDeliveryFailure(span, item, "r2_signing", err, true)
+			}
+			linkHTML, err := renderHTMLLink("Open the full response", link)
+			if err != nil {
+				return 0, b.recordDeliveryFailure(span, item, "r2_invalid_link", err, false)
+			}
+			payload, parseMode = RenderHTML(item.Payload)+"\n"+linkHTML, "HTML"
+		}
+	}
+	sent, err := b.Client.SendMessage(ctx, SendMessage{ChatID: item.ChatID, Text: payload, ParseMode: parseMode, ReplyToMessageID: item.ReplyToMessageID, DisableLinkPreview: true})
 	if err == nil {
 		if sent.MessageID == 0 {
 			span.SetStatus(codes.Error, "Telegram returned no message ID")
-			return 0, errors.New("Telegram sendMessage returned no message ID")
+			return 0, b.recordDeliveryFailure(span, item, "telegram_delivery", errors.New("Telegram sendMessage returned no message ID"), true)
 		}
 		if err := b.State.CompleteDelivery(ctx, item.ID, sent.MessageID); err != nil {
 			span.SetStatus(codes.Error, "delivery record could not be completed")
@@ -973,7 +989,15 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 		})
 		return sent.MessageID, nil
 	}
-	delay, retry := retryDelay(err, item.Attempts)
+	return 0, b.recordDeliveryFailure(span, item, "telegram_delivery", err, true)
+}
+
+func (b *Bridge) recordDeliveryFailure(span trace.Span, item agentruntime.Outbox, kind string, err error, retryable bool) error {
+	var delay time.Duration
+	retry := false
+	if retryable {
+		delay, retry = retryDelay(err, item.Attempts)
+	}
 	if item.Attempts+1 >= 8 {
 		retry = false
 	}
@@ -984,12 +1008,12 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 	} else {
 		span.SetStatus(codes.Error, "Telegram delivery failed")
 	}
-	if saveErr := b.State.FailDelivery(context.Background(), item.ID, "telegram_delivery", retryAt); saveErr != nil {
+	if saveErr := b.State.FailDelivery(context.Background(), item.ID, kind, retryAt); saveErr != nil {
 		err = errors.Join(err, saveErr)
 	}
 	fields := logrus.Fields{
 		"chat_id": item.ChatID, "delivery_id": item.ID, "attempt": item.Attempts + 1,
-		"retry": retry, "error": err,
+		"retry": retry, "error_kind": kind, "error": err,
 	}
 	if retry {
 		fields["retry_delay_ms"] = delay.Milliseconds()
@@ -997,7 +1021,7 @@ func (b *Bridge) deliverOne(ctx context.Context, item agentruntime.Outbox) (int6
 	} else {
 		b.logErrorFields("Telegram message delivery failed permanently", fields)
 	}
-	return 0, err
+	return err
 }
 
 func (b *Bridge) notifyAdmin(ctx context.Context, message string) {
@@ -1140,4 +1164,42 @@ func wait(ctx context.Context, delay time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func (b *Bridge) queueAnswer(ctx context.Context, input agentruntime.QueuedInput, eventID, answer string) (agentruntime.Outbox, error) {
+	chatID, err := strconv.ParseInt(input.ChatID, 10, 64)
+	if err != nil {
+		return agentruntime.Outbox{}, errors.New("outbound response requires a Telegram chat ID")
+	}
+	item := agentruntime.Outbox{ChatID: chatID, UserID: input.UserID, BranchID: input.BranchID,
+		CheckpointEventID: eventID, ReplyToMessageID: input.ReplyToMessageID}
+	if b.R2 != nil {
+		item.ParseMode = "HTML"
+		if shouldOffloadR2(answer, b.Config.Telegram.ResponseInlineThreshold) {
+			uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			// Reserve a minute before the bucket's earliest lifecycle deletion.
+			expiresAt := time.Now().UTC().Add(24*time.Hour - time.Minute)
+			locator, err := b.R2.Store(uploadCtx, answer)
+			if err != nil {
+				b.logWarnFields("long response upload failed", logrus.Fields{"chat_id": input.ChatID, "error_category": "r2_upload_failed"})
+				item.Payload = "I couldn't safely store the long response. Please try again or ask for a shorter answer."
+			} else {
+				item.Payload = "Read the full response before the link expires:"
+				item.R2ObjectLocator, item.R2ObjectExpiresAt = locator, expiresAt
+				item.R2URLExpirySeconds = int64(b.R2.expiry / time.Second)
+			}
+		} else {
+			item.Payload = RenderHTML(answer)
+		}
+	} else {
+		payload, mode, err := PrepareAnswer(ctx, answer, b.Publisher)
+		if err != nil {
+			payload, mode = "This response is too long for Telegram. Configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to deliver long output.", ""
+		}
+		item.Payload, item.ParseMode = payload, mode
+	}
+	queueCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	return b.State.EnqueueOutbox(queueCtx, item)
 }

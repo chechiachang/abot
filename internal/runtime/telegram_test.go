@@ -195,3 +195,51 @@ func TestAccessRequestReviewAndResetKeepPreviousHistory(t *testing.T) {
 		t.Fatalf("reset branch=%#v current=%s err=%v", branch, current, err)
 	}
 }
+
+func TestLegacyTelegramOutboxMigratesR2Metadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.sqlite")
+	db, err := gorm.Open(sqlite.Open(sqliteDSN(path, false)), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&Outbox{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"r2_object_locator", "r2_url_expiry_seconds", "r2_object_expires_at"} {
+		if err = db.Migrator().DropColumn(&Outbox{}, column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = db.Exec("INSERT INTO runtime_telegram_outbox (id, chat_id, payload, status, telegram_message_id) VALUES ('legacy', 42, 'old answer', 'sent', 900)").Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	item, err := store.OutboxByMessageID(context.Background(), 42, 900)
+	if err != nil || item.Payload != "old answer" || item.R2ObjectLocator != "" || !item.R2ObjectExpiresAt.IsZero() {
+		t.Fatalf("legacy item=%#v err=%v", item, err)
+	}
+	for _, item := range []Outbox{
+		{R2URLExpirySeconds: 60},
+		{R2ObjectExpiresAt: time.Now()},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 0, R2ObjectExpiresAt: time.Now()},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 86400, R2ObjectExpiresAt: time.Now()},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 60},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 60, R2ObjectExpiresAt: time.Now().Add(25 * time.Hour)},
+	} {
+		item.ChatID, item.Payload = 42, "response"
+		if _, err := store.EnqueueOutbox(context.Background(), item); err == nil {
+			t.Fatalf("accepted metadata %#v", item)
+		}
+	}
+}

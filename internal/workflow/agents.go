@@ -30,7 +30,7 @@ func NewRootWithCoordinatorTools(llm model.LLM, instructions string, codingTools
 		Name:        "coordinator",
 		Description: "Coordinates the conversation and delegates repository implementation tasks to the coding agent.",
 		Model:       llm,
-		Instruction: instructions + "\n\nYou are the coordinator. Delegate repository inspection or code changes to the coding_agent, then summarize its verified result.",
+		Instruction: instructions + "\n\nYou are the coordinator. Delegate repository inspection or code changes to the coding_agent, then summarize its verified result. Answer text-generation requests directly, honoring the requested length; do not create files unless asked. The host handles Telegram length limits and R2 uploads automatically from your final answer; do not delegate delivery or replace requested text with a file summary.",
 		Tools:       coordinatorTools,
 	})
 	if err != nil {

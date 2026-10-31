@@ -64,6 +64,10 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return err
 				}
 			}
+			r2, err := telegram.NewR2Uploader(cfg.R2)
+			if err != nil {
+				return err
+			}
 			state, err := agentruntime.Open(cfg.Runtime.SQLitePath)
 			if err != nil {
 				return err
@@ -76,7 +80,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return active, err
 				},
 			}
-			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, Logger: logger}
+			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, R2: r2, Logger: logger}
 			return bridge.Run(cmd.Context())
 		},
 	})
