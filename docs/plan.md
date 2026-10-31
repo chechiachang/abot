@@ -56,7 +56,7 @@ Detailed tasks: [implementation index](tasks/README.md). Follow the numbered fil
 - [x] Add `/start`, `/help`, `/id`, `/cancel`, and `/reset`.
 - [x] Add `/allow` access requests reviewed through the administrator CLI; policy allowlist limits still apply.
 - [x] Implement polling retries, rate-limit handling, fatal token/competing-poller detection, and startup/shutdown administrator notifications.
-- [x] Implement Telegram HTML rendering and Morsel publication for output above 1,000 characters, without splitting; require Morsel credentials for long output.
+- [x] Implement Telegram HTML rendering and private R2 long-response links with durable re-signing, Unicode-safe thresholds, and legacy Morsel fallback; no splitting.
 - [x] Render throttled model/tool activity and structured progress; retain completed tool progress beside the final answer. Include an authorized, run-bound inline emergency Stop callback for immediate active-turn/tool cancellation.
 - [x] Add durable response outbox and restart recovery for persisted outbox entries. Track at-least-once delivery; do not automatically replay interrupted side-effecting tools. Accept unrecoverable pre-turn and result-to-outbox crash gaps for now; inbox recovery and atomic result handoff are deferred.
 - [x] Map replies to earlier completed answers to durable branch checkpoints and fork the conversation.

@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	LongOutputThreshold = 1000
-	TelegramTextLimit   = 4096
+	LongOutputThreshold      = 1000
+	TelegramOffloadThreshold = 3500
+	TelegramTextLimit        = 4096
 )
 
 type Publisher interface {
@@ -19,7 +20,7 @@ type Publisher interface {
 }
 
 func PrepareAnswer(ctx context.Context, text string, publisher Publisher) (string, string, error) {
-	if utf8.RuneCountInString(text) > LongOutputThreshold {
+	if utf8.RuneCountInString(text) > LongOutputThreshold || telegramMessageSize(text) > TelegramOffloadThreshold {
 		if publisher == nil {
 			return "", "", fmt.Errorf("response exceeds %d characters; configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to publish long output", LongOutputThreshold)
 		}
@@ -119,4 +120,31 @@ func RenderHTML(text string) string {
 func safeLink(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && u.User == nil
+}
+
+func telegramMessageSize(text string) int {
+	size := 0
+	for _, r := range text {
+		size++
+		if r > 0xffff {
+			size++
+		}
+	}
+	return size
+}
+
+func shouldOffloadR2(text string, threshold int) bool {
+	if threshold == 0 {
+		threshold = LongOutputThreshold
+	}
+	size := telegramMessageSize(text)
+	return size > threshold || size > TelegramOffloadThreshold
+}
+
+func renderHTMLLink(label, raw string) (string, error) {
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme != "https" || target.Hostname() == "" || target.User != nil || target.Opaque != "" {
+		return "", fmt.Errorf("link must be a valid HTTPS URL")
+	}
+	return `<a href="` + html.EscapeString(target.String()) + `">` + html.EscapeString(label) + `</a>`, nil
 }

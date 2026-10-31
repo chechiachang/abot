@@ -258,22 +258,25 @@ const (
 )
 
 type Outbox struct {
-	ID                string       `gorm:"primaryKey;size:128" json:"id"`
-	ChatID            int64        `gorm:"index:idx_runtime_outbox,priority:1;index:idx_runtime_outbox_chat_message,priority:1" json:"chat_id"`
-	UserID            string       `gorm:"size:128" json:"user_id"`
-	BranchID          string       `gorm:"size:128" json:"branch_id"`
-	CheckpointEventID string       `gorm:"size:128" json:"checkpoint_event_id"`
-	Payload           string       `gorm:"size:4194304" json:"payload"`
-	ParseMode         string       `gorm:"size:16" json:"parse_mode"`
-	ReplyToMessageID  int64        `json:"reply_to_message_id,omitempty"`
-	Status            OutboxStatus `gorm:"index:idx_runtime_outbox,priority:2;size:32" json:"status"`
-	Attempts          int          `json:"attempts"`
-	NextAttemptAt     time.Time    `gorm:"index:idx_runtime_outbox,priority:3" json:"next_attempt_at"`
-	TelegramMessageID *int64       `gorm:"index:idx_runtime_outbox_chat_message,priority:2" json:"telegram_message_id,omitempty"`
-	ErrorKind         string       `gorm:"size:64" json:"error_kind,omitempty"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
-	SentAt            *time.Time   `json:"sent_at,omitempty"`
+	R2ObjectLocator    string       `gorm:"size:2048" json:"-"`
+	R2URLExpirySeconds int64        `json:"-"`
+	R2ObjectExpiresAt  time.Time    `json:"-"`
+	ID                 string       `gorm:"primaryKey;size:128" json:"id"`
+	ChatID             int64        `gorm:"index:idx_runtime_outbox,priority:1;index:idx_runtime_outbox_chat_message,priority:1" json:"chat_id"`
+	UserID             string       `gorm:"size:128" json:"user_id"`
+	BranchID           string       `gorm:"size:128" json:"branch_id"`
+	CheckpointEventID  string       `gorm:"size:128" json:"checkpoint_event_id"`
+	Payload            string       `gorm:"size:4194304" json:"payload"`
+	ParseMode          string       `gorm:"size:16" json:"parse_mode"`
+	ReplyToMessageID   int64        `json:"reply_to_message_id,omitempty"`
+	Status             OutboxStatus `gorm:"index:idx_runtime_outbox,priority:2;size:32" json:"status"`
+	Attempts           int          `json:"attempts"`
+	NextAttemptAt      time.Time    `gorm:"index:idx_runtime_outbox,priority:3" json:"next_attempt_at"`
+	TelegramMessageID  *int64       `gorm:"index:idx_runtime_outbox_chat_message,priority:2" json:"telegram_message_id,omitempty"`
+	ErrorKind          string       `gorm:"size:64" json:"error_kind,omitempty"`
+	CreatedAt          time.Time    `json:"created_at"`
+	UpdatedAt          time.Time    `json:"updated_at"`
+	SentAt             *time.Time   `json:"sent_at,omitempty"`
 }
 
 func (Outbox) TableName() string { return "runtime_telegram_outbox" }
@@ -393,6 +396,13 @@ func (s *Store) EnqueueOutbox(ctx context.Context, item Outbox) (Outbox, error) 
 	}
 	if item.ChatID == 0 || item.Payload == "" || len(item.Payload) > 4<<20 {
 		return Outbox{}, errors.New("outbound chat and payload of 1 byte to 4 MiB are required")
+	}
+	if item.R2ObjectLocator != "" {
+		if len(item.R2ObjectLocator) > 2048 || item.R2URLExpirySeconds < 1 || item.R2URLExpirySeconds >= 86400 || item.R2ObjectExpiresAt.IsZero() || item.R2ObjectExpiresAt.After(time.Now().Add(24*time.Hour)) {
+			return Outbox{}, errors.New("invalid R2 outbound object metadata")
+		}
+	} else if item.R2URLExpirySeconds != 0 || !item.R2ObjectExpiresAt.IsZero() {
+		return Outbox{}, errors.New("R2 outbound metadata requires an object locator")
 	}
 	if item.ID == "" {
 		item.ID = uuid.NewString()

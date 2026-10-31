@@ -48,7 +48,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 			if _, err := current.Effective(0); err != nil {
 				return err
 			}
-			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token)
+			logger := logging.New(cfg.Azure.APIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.URLReader.FirecrawlAPIKey, cfg.Logfire.Token, cfg.R2.AccessKeyID, cfg.R2.SecretAccessKey)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
 			stopTracing := configureTracing(cmd.Context(), cfg, logger)
@@ -64,6 +64,10 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return err
 				}
 			}
+			r2, err := telegram.NewR2Uploader(cfg.R2)
+			if err != nil {
+				return err
+			}
 			state, err := agentruntime.Open(cfg.Runtime.SQLitePath)
 			if err != nil {
 				return err
@@ -76,7 +80,7 @@ func telegramCommand(v *viper.Viper) *cobra.Command {
 					return active, err
 				},
 			}
-			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, Logger: logger}
+			bridge := telegram.Bridge{Config: cfg, State: state, Engine: host, Media: mediaStore, Client: client, Publisher: publisher, R2: r2, Logger: logger}
 			return bridge.Run(cmd.Context())
 		},
 	})

@@ -11,7 +11,7 @@ import (
 var (
 	bearerPattern   = regexp.MustCompile(`(?i)(bearer\s+)[a-z0-9._~+/-]+=*`)
 	userinfoPattern = regexp.MustCompile(`(?i)(https?://)[^/@\s]+@`)
-	queryPattern    = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|sig(?:nature)?|password|secret|credential)=)[^&#\s]*`)
+	queryPattern    = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|sig(?:nature)?|password|secret|credential|x-amz-(?:signature|credential|security-token))=)[^&#\s]*`)
 )
 
 func New(secrets ...string) *logrus.Logger {

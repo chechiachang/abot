@@ -95,7 +95,7 @@ func configCommand(v *viper.Viper) *cobra.Command {
 			if _, _, err := configuredPolicy(cfg); err != nil {
 				return err
 			}
-			logger := logging.New(cfg.Azure.APIKey, cfg.Logfire.Token, cfg.URLReader.FirecrawlAPIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey)
+			logger := logging.New(cfg.Azure.APIKey, cfg.Logfire.Token, cfg.URLReader.FirecrawlAPIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.R2.AccessKeyID, cfg.R2.SecretAccessKey)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
 			logger.WithField("command", "config validate").Debug("configuration validated")
@@ -129,7 +129,7 @@ func chatCommand(v *viper.Viper) *cobra.Command {
 			if _, err := currentPolicy.Effective(0); err != nil {
 				return err
 			}
-			logger := logging.New(cfg.Azure.APIKey, cfg.Logfire.Token, cfg.URLReader.FirecrawlAPIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey)
+			logger := logging.New(cfg.Azure.APIKey, cfg.Logfire.Token, cfg.URLReader.FirecrawlAPIKey, cfg.Telegram.BotToken, cfg.Telegram.MorselAPIKey, cfg.R2.AccessKeyID, cfg.R2.SecretAccessKey)
 			level, _ := logrus.ParseLevel(cfg.Log.Level)
 			logger.SetLevel(level)
 			stopTracing := configureTracing(cmd.Context(), cfg, logger)

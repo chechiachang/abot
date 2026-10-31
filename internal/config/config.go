@@ -27,6 +27,7 @@ type Config struct {
 	Skills       SkillsConfig                  `mapstructure:"skills"`
 	MCP          MCPConfig                     `mapstructure:"mcp"`
 	Media        MediaConfig                   `mapstructure:"media"`
+	R2           R2Config                      `mapstructure:"r2"`
 	URLReader    URLReaderConfig               `mapstructure:"url_reader"`
 	Logfire      LogfireConfig                 `mapstructure:"logfire"`
 }
@@ -64,15 +65,18 @@ type SkillsConfig struct {
 	Paths []string `mapstructure:"paths"`
 }
 
+const DefaultResponseInlineThreshold = 1000
+
 type TelegramConfig struct {
-	BotToken           string  `mapstructure:"bot_token"`
-	AdminChatID        int64   `mapstructure:"admin_chat_id"`
-	MorselAPIKey       string  `mapstructure:"morsel_api_key"`
-	MorselPublishURL   string  `mapstructure:"morsel_publish_url"`
-	AllowedUserIDs     []int64 `mapstructure:"allowed_user_ids"`
-	AdminUserIDs       []int64 `mapstructure:"admin_user_ids"`
-	DefaultGroupID     int64   `mapstructure:"default_group_id"`
-	ApprovedChannelIDs []int64 `mapstructure:"approved_channel_ids"`
+	ResponseInlineThreshold int     `mapstructure:"response_inline_threshold"`
+	BotToken                string  `mapstructure:"bot_token"`
+	AdminChatID             int64   `mapstructure:"admin_chat_id"`
+	MorselAPIKey            string  `mapstructure:"morsel_api_key"`
+	MorselPublishURL        string  `mapstructure:"morsel_publish_url"`
+	AllowedUserIDs          []int64 `mapstructure:"allowed_user_ids"`
+	AdminUserIDs            []int64 `mapstructure:"admin_user_ids"`
+	DefaultGroupID          int64   `mapstructure:"default_group_id"`
+	ApprovedChannelIDs      []int64 `mapstructure:"approved_channel_ids"`
 }
 
 type MCPConfig struct {
@@ -117,6 +121,16 @@ type URLReaderConfig struct {
 	FirecrawlExternalTransfer bool          `mapstructure:"firecrawl_external_transfer"`
 	FirecrawlEndpoint         string        `mapstructure:"firecrawl_endpoint"`
 	FirecrawlAPIKey           string        `mapstructure:"firecrawl_api_key"`
+}
+
+type R2Config struct {
+	Endpoint        string        `mapstructure:"endpoint"`
+	Bucket          string        `mapstructure:"bucket"`
+	Region          string        `mapstructure:"region"`
+	PresignExpiry   time.Duration `mapstructure:"presign_expiry"`
+	MaxBytes        int64         `mapstructure:"max_bytes"`
+	AccessKeyID     string        `mapstructure:"access_key_id"`
+	SecretAccessKey string        `mapstructure:"secret_access_key"`
 }
 
 type LogfireConfig struct {
@@ -178,6 +192,14 @@ func NewViper() *viper.Viper {
 		"media.whisper":                          {"ABOT_MEDIA_WHISPER"},
 		"media.whisper_model":                    {"ABOT_MEDIA_WHISPER_MODEL"},
 		"media.youtube_dl":                       {"ABOT_MEDIA_YOUTUBE_DL"},
+		"telegram.response_inline_threshold":     {"ABOT_TELEGRAM_RESPONSE_INLINE_THRESHOLD"},
+		"r2.max_bytes":                           {"ABOT_R2_MAX_BYTES"},
+		"r2.endpoint":                            {"ABOT_R2_ENDPOINT"},
+		"r2.bucket":                              {"ABOT_R2_BUCKET"},
+		"r2.region":                              {"ABOT_R2_REGION"},
+		"r2.presign_expiry":                      {"ABOT_R2_PRESIGN_EXPIRY"},
+		"r2.access_key_id":                       {"ABOT_R2_ACCESS_KEY_ID"},
+		"r2.secret_access_key":                   {"ABOT_R2_SECRET_ACCESS_KEY"},
 		"url_reader.timeout":                     {"ABOT_URL_READER_TIMEOUT"},
 		"url_reader.max_bytes":                   {"ABOT_URL_READER_MAX_BYTES"},
 		"url_reader.max_output_bytes":            {"ABOT_URL_READER_MAX_OUTPUT_BYTES"},
@@ -219,6 +241,10 @@ func NewViper() *viper.Viper {
 	v.SetDefault("media.pdftotext", "pdftotext")
 	v.SetDefault("media.ffmpeg", "ffmpeg")
 	v.SetDefault("media.ffprobe", "ffprobe")
+	v.SetDefault("telegram.response_inline_threshold", DefaultResponseInlineThreshold)
+	v.SetDefault("r2.max_bytes", int64(5<<20))
+	v.SetDefault("r2.region", "auto")
+	v.SetDefault("r2.presign_expiry", time.Hour)
 	v.SetDefault("url_reader.timeout", 30*time.Second)
 	v.SetDefault("url_reader.max_bytes", int64(10<<20))
 	v.SetDefault("url_reader.max_output_bytes", 12<<10)
@@ -283,7 +309,7 @@ func Load(v *viper.Viper) (Config, error) {
 	if v.InConfig("azure.api_key") || v.InConfig("azure.api-key") {
 		return Config{}, invalid("azure.api_key", "do not store secrets in a config file; use AZURE_OPENAI_API_KEY")
 	}
-	for key, envName := range map[string]string{"telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN"} {
+	for key, envName := range map[string]string{"telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN", "r2.access_key_id": "ABOT_R2_ACCESS_KEY_ID", "r2.secret_access_key": "ABOT_R2_SECRET_ACCESS_KEY"} {
 		if v.InConfig(key) {
 			return Config{}, invalid(key, "do not store secrets in a config file; use "+envName)
 		}
@@ -335,6 +361,12 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Media.Root) == "" {
 		return invalid("media.root", "is required")
+	}
+	if c.Telegram.ResponseInlineThreshold < 1 || c.Telegram.ResponseInlineThreshold > 3500 {
+		return invalid("telegram.response_inline_threshold", "must be between 1 and 3500 UTF-16 units")
+	}
+	if err := c.R2.Validate(); err != nil {
+		return err
 	}
 	if c.URLReader.Timeout <= 0 || c.URLReader.Timeout > 10*time.Minute || c.URLReader.MaxBytes < 1024 || c.URLReader.MaxBytes > 50<<20 || c.URLReader.MaxOutputBytes < 1024 || c.URLReader.MaxOutputBytes > 64<<10 || c.URLReader.MaxRedirects < 0 || c.URLReader.MaxRedirects > 10 {
 		return invalid("url_reader", "timeout, download, output, and redirect limits are outside their supported range")
@@ -509,6 +541,33 @@ func validateBaseURL(raw string) error {
 	path := strings.TrimRight(u.Path, "/")
 	if path != "" && path != "/openai/v1" {
 		return errors.New("must end in /openai/v1")
+	}
+	return nil
+}
+
+func (c R2Config) Enabled() bool {
+	return strings.TrimSpace(c.AccessKeyID) != "" && strings.TrimSpace(c.SecretAccessKey) != ""
+}
+
+func (c R2Config) Validate() error {
+	if (strings.TrimSpace(c.AccessKeyID) == "") != (strings.TrimSpace(c.SecretAccessKey) == "") {
+		return invalid("r2", "set both ABOT_R2_ACCESS_KEY_ID and ABOT_R2_SECRET_ACCESS_KEY, or leave both unset")
+	}
+	if c.Endpoint == "" && c.Bucket == "" && !c.Enabled() {
+		return nil
+	}
+	u, err := url.Parse(c.Endpoint)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return invalid("r2.endpoint", "must be an HTTPS origin without credentials, query, or fragment")
+	}
+	if strings.TrimSpace(c.Bucket) == "" || strings.ContainsAny(c.Bucket, "/\\?#") || strings.TrimSpace(c.Region) == "" {
+		return invalid("r2", "bucket and region are required; bucket must not contain path characters")
+	}
+	if c.PresignExpiry < time.Second || c.PresignExpiry >= 24*time.Hour {
+		return invalid("r2.presign_expiry", "must be at least 1s and below the bucket's 24h retention")
+	}
+	if c.MaxBytes < 1 || c.MaxBytes > 50<<20 {
+		return invalid("r2.max_bytes", "must be between 1 byte and 50 MiB")
 	}
 	return nil
 }

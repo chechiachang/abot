@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -33,5 +34,14 @@ func TestHookRedactsMessagesAndFields(t *testing.T) {
 	}
 	if entry.Data["api_key"] != "[REDACTED]" || entry.Data["detail"] != "Bearer [REDACTED]" {
 		t.Fatalf("fields not redacted: %#v", entry.Data)
+	}
+}
+
+func TestRedactR2SignedURL(t *testing.T) {
+	got := Redact("https://r2.example/object?X-Amz-Credential=private-id%2Fauto&X-Amz-Signature=private-signature&X-Amz-Security-Token=private-token&X-Amz-Expires=3600")
+	for _, secret := range []string{"private-id", "private-signature", "private-token"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("signed URL leaked %s", secret)
+		}
 	}
 }
