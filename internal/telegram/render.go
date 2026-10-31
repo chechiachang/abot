@@ -6,19 +6,25 @@ import (
 	"html"
 	"net/url"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
-// TelegramTextLimit is Telegram Bot API's sendMessage maximum (4096 characters
-// after entities parsing). Count Unicode code points, not UTF-8 bytes.
-// See https://core.telegram.org/bots/api#sendmessage
-const TelegramTextLimit = 4096
+const (
+	TelegramTextLimit = 4096
+	// DefaultTelegramOffloadThreshold is deliberately below the Bot API limit to
+	// leave room for formatting and links. It is independent of inline UX preference.
+	DefaultTelegramOffloadThreshold = 3500
+	telegramTextHeadroom            = TelegramTextLimit - DefaultTelegramOffloadThreshold
+)
 
-// LongOutputThreshold is the preferred mobile-reading length, not an API limit.
-// Responses longer than this are linked rather than placed inline. This
-// conservative threshold considers iPhone screen/reading experience; Apple
-// publishes layout guidance rather than a text-character cap:
-// https://developer.apple.com/design/human-interface-guidelines/typography
+// telegramMessageSize counts UTF-16 code units used by Telegram entities.
+func telegramMessageSize(text string) int {
+	return len(utf16.Encode([]rune(text)))
+}
+
+// LongOutputThreshold is a legacy default for the separately configurable
+// inline-display preference. It is not a Telegram or iOS character limit.
 const LongOutputThreshold = 1000
 
 type Publisher interface {
@@ -26,10 +32,10 @@ type Publisher interface {
 }
 
 func PrepareAnswer(ctx context.Context, text string, publisher Publisher) (string, string, error) {
-	count := utf8.RuneCountInString(text)
-	if count > LongOutputThreshold {
+	count := telegramMessageSize(text)
+	if count > DefaultTelegramOffloadThreshold {
 		if publisher == nil {
-			return "", "", fmt.Errorf("response exceeds the %d-character inline UX threshold; configure MORSEL_API_KEY and MORSEL_PUBLISH_URL to publish long output", LongOutputThreshold)
+			return "", "", fmt.Errorf("response exceeds Telegram's %d-unit text limit safety threshold; configure a publisher for long output", TelegramTextLimit)
 		}
 		link, err := publisher.Publish(ctx, "abot response", text)
 		if err != nil {
@@ -40,9 +46,6 @@ func PrepareAnswer(ctx context.Context, text string, publisher Publisher) (strin
 			return "", "", fmt.Errorf("publisher returned an invalid public HTTPS URL")
 		}
 		return `<a href="` + html.EscapeString(target.String()) + `">Open the full response</a>`, "HTML", nil
-	}
-	if count > TelegramTextLimit {
-		return "", "", fmt.Errorf("response exceeds Telegram's %d-character hard limit", TelegramTextLimit)
 	}
 	return RenderHTML(text), "HTML", nil
 }

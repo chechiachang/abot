@@ -17,10 +17,10 @@ logfire:
 telegram:
   admin_chat_id: 0
   allowed_user_ids: []
-  # Inline UX threshold (not Telegram's API limit): longer answers are linked.
-  # Telegram sendMessage hard maximum is 4096 Unicode characters; see docs/r2-long-responses.md.
+  # Inline UX preference only; independently, responses over 3500 UTF-16 units are offloaded. Default: 1000.
+  # Telegram text messages have a 4096 UTF-16-unit hard limit.
   response_inline_threshold: 1000
-  # Private R2 storage for responses above the inline UX threshold.
+  # Private R2 storage for responses that approach Telegram's sendMessage limit.
   r2_account_id: ""
   r2_bucket: ""
   morsel_publish_url: ""

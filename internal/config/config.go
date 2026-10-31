@@ -221,7 +221,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("instructions.system_file", "SYSTEM.md")
 	v.SetDefault("instructions.soul_file", "SOUL.md")
 	v.SetDefault("log.level", "info")
-	v.SetDefault("telegram.response_inline_threshold", 1000)
+	v.SetDefault("telegram.response_inline_threshold", DefaultTelegramResponseInlineThreshold)
 	v.SetDefault("runtime.turn_timeout", 10*time.Minute)
 	if path, err := defaultConfigPath(); err == nil {
 		v.SetDefault("policy_file", filepath.Join(filepath.Dir(path), "policy.json"))
@@ -385,7 +385,7 @@ func (c Config) Validate() error {
 		c.Telegram.ResponseInlineThreshold = DefaultTelegramResponseInlineThreshold
 	}
 	if c.Telegram.ResponseInlineThreshold < 1 || c.Telegram.ResponseInlineThreshold >= TelegramResponseHardLimit {
-		return invalid("telegram.response_inline_threshold", "must be between 1 and 4095 characters (below Telegram's 4096-character hard limit)")
+		return invalid("telegram.response_inline_threshold", "must be between 1 and 4095 Unicode code points; this UX preference does not control the 3500 UTF-16-unit offload threshold")
 	}
 	if c.Telegram.R2AccountID != "" || c.Telegram.R2Bucket != "" || c.Telegram.R2AccessKeyID != "" || c.Telegram.R2SecretAccessKey != "" || c.Telegram.R2Endpoint != "" || c.Telegram.R2Prefix != "" || c.Telegram.R2URLExpiry != 0 || c.Telegram.R2MaxBytes != 0 {
 		if c.Telegram.R2AccountID == "" || c.Telegram.R2Bucket == "" || strings.TrimSpace(c.Telegram.R2AccessKeyID) == "" || strings.TrimSpace(c.Telegram.R2SecretAccessKey) == "" {

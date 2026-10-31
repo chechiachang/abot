@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/chechiachang/abot/internal/config"
 	"github.com/chechiachang/abot/internal/engine"
@@ -710,7 +709,11 @@ func (b *Bridge) runInput(ctx context.Context, input agentruntime.QueuedInput) {
 	if b.Config.Telegram.ResponseInlineThreshold == 0 {
 		b.Config.Telegram.ResponseInlineThreshold = config.DefaultTelegramResponseInlineThreshold
 	}
-	if utf8.RuneCountInString(answer) <= b.Config.Telegram.ResponseInlineThreshold {
+	// Inline UX preference is independent; payloads above 3500 UTF-16 units are
+	// offloaded regardless of that preference. The 596-unit margin under the
+	// Bot API's 4096 limit conservatively covers formatting and reply decoration.
+	inlineSize := telegramMessageSize(answer)
+	if inlineSize <= b.Config.Telegram.ResponseInlineThreshold && inlineSize <= DefaultTelegramOffloadThreshold {
 		payload := RenderHTML(answer)
 		queueCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		defer cancel()

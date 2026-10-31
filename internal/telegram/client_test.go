@@ -116,15 +116,15 @@ func (p *fakePublisher) Publish(_ context.Context, _, text string) (string, erro
 	return p.url, nil
 }
 
-func TestPrepareAnswerUsesMorselAboveOneThousandCharacters(t *testing.T) {
-	content := strings.Repeat("有", 1001)
+func TestPrepareAnswerUsesMorselAboveOffloadThreshold(t *testing.T) {
+	content := strings.Repeat("有", DefaultTelegramOffloadThreshold+1)
 	publisher := &fakePublisher{url: "https://morsel.example/post/1"}
 	text, mode, err := PrepareAnswer(context.Background(), content, publisher)
 	if err != nil || mode != "HTML" || publisher.text != content || !strings.Contains(text, "morsel.example/post/1") {
 		t.Fatalf("prepared answer=%q mode=%q err=%v", text, mode, err)
 	}
-	if _, _, err := PrepareAnswer(context.Background(), content, nil); err == nil || !strings.Contains(err.Error(), "MORSEL_API_KEY") {
-		t.Fatalf("missing Morsel configuration error=%v", err)
+	if _, _, err := PrepareAnswer(context.Background(), content, nil); err == nil || !strings.Contains(err.Error(), "4096-unit text limit") {
+		t.Fatalf("missing publisher error=%v", err)
 	}
 }
 
