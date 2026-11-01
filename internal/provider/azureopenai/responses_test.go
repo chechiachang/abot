@@ -163,3 +163,21 @@ func TestIncompleteResponsesDoNotDispatchFunctionCalls(t *testing.T) {
 		t.Fatalf("incomplete tool call must not be dispatched: %#v", response)
 	}
 }
+
+func TestResponseContentPreservesInterleavedOutputOrder(t *testing.T) {
+	envelope := responsesEnvelope{Status: "completed", Output: []json.RawMessage{
+		json.RawMessage(`{"type":"reasoning","encrypted_content":"rs_1"}`),
+		json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"before"}]}`),
+		json.RawMessage(`{"type":"reasoning","encrypted_content":"rs_2"}`),
+		json.RawMessage(`{"type":"function_call","call_id":"call_1","name":"read","arguments":"{\"path\":\"README.md\"}"}`),
+		json.RawMessage(`{"type":"message","content":[{"type":"output_text","text":"after"}]}`),
+	}}
+	response, err := responseContent(envelope, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Content.Parts
+	if len(parts) != 5 || !parts[0].Thought || parts[1].Text != "before" || !parts[2].Thought || parts[3].FunctionCall == nil || parts[3].FunctionCall.ID != "call_1" || parts[4].Text != "after" {
+		t.Fatalf("output ordering changed: %#v", parts)
+	}
+}

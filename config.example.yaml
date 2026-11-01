@@ -1,7 +1,7 @@
 # Optional System One selector; model is the Azure deployment name.
 # Supply credentials only through ABOT_SYSTEM_ONE_API_KEY.
 system_one:
-  enabled: true
+  enabled: false
   endpoint: https://myopenai.openai.azure.com/providers/microsoft/v1/systemone
   model: decision-1
   min_confidence: 0.6

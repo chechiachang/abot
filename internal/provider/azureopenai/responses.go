@@ -2,6 +2,7 @@ package azureopenai
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -124,23 +125,38 @@ func responseContent(envelope responsesEnvelope, modelName string) (*model.LLMRe
 		return nil, &ProviderError{Kind: ErrorProvider}
 	}
 	message := chatMessage{}
+	var orderedParts []*genai.Part
 	var text strings.Builder
-	var reasoning []*genai.Part
+	flushText := func() {
+		if text.Len() > 0 {
+			orderedParts = append(orderedParts, genai.NewPartFromText(text.String()))
+			text.Reset()
+		}
+	}
 	for _, raw := range envelope.Output {
+		if envelope.Status == "incomplete" && bytes.Contains(raw, []byte(`"type":"function_call"`)) {
+			continue
+		}
 		var item responsesOutput
 		if err := json.Unmarshal(raw, &item); err != nil {
 			return nil, &ProviderError{Kind: ErrorProvider, Cause: err}
 		}
 		switch item.Type {
 		case "reasoning":
+			flushText()
 			if item.EncryptedContent != "" {
-				reasoning = append(reasoning, &genai.Part{Thought: true, ThoughtSignature: append([]byte(nil), raw...)})
+				orderedParts = append(orderedParts, &genai.Part{Thought: true, ThoughtSignature: append([]byte(nil), raw...)})
 			}
 		case "function_call":
+			flushText()
 			if item.CallID == "" || item.Name == "" {
 				return nil, &ProviderError{Kind: ErrorProvider}
 			}
-			message.ToolCalls = append(message.ToolCalls, toolCall{ID: item.CallID, Type: "function", Function: toolFunction{Name: item.Name, Arguments: item.Arguments}})
+			var args map[string]any
+			if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
+				return nil, &ProviderError{Kind: ErrorProvider, Cause: err}
+			}
+			orderedParts = append(orderedParts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: item.CallID, Name: item.Name, Args: args}})
 		case "message":
 			for _, content := range item.Content {
 				if content.Type == "output_text" {
@@ -149,6 +165,7 @@ func responseContent(envelope responsesEnvelope, modelName string) (*model.LLMRe
 					text.WriteString(content.Refusal)
 				}
 			}
+			flushText()
 		}
 	}
 	message.Content = text.String()
@@ -159,15 +176,30 @@ func responseContent(envelope responsesEnvelope, modelName string) (*model.LLMRe
 			reason = "content_filter"
 		}
 		// Never dispatch a function call whose generation was interrupted.
-		message.ToolCalls = nil
+		orderedParts = nil
 	}
 	var tokens *usage
 	if envelope.Usage != nil {
 		tokens = &usage{PromptTokens: envelope.Usage.InputTokens, CompletionTokens: envelope.Usage.OutputTokens, TotalTokens: envelope.Usage.TotalTokens}
 	}
+	flushText()
+	if len(orderedParts) == 0 {
+		result, err := completionResponse(message, reason, tokens, modelName)
+		if err == nil {
+			result.Content.Parts = orderedParts
+		}
+		return result, err
+	}
+	var textResult strings.Builder
+	for _, part := range orderedParts {
+		if part.Text != "" {
+			textResult.WriteString(part.Text)
+		}
+	}
+	message.Content = textResult.String()
 	result, err := completionResponse(message, reason, tokens, modelName)
 	if err == nil {
-		result.Content.Parts = append(reasoning, result.Content.Parts...)
+		result.Content.Parts = orderedParts
 	}
 	return result, err
 }
