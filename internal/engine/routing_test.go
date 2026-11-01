@@ -10,84 +10,83 @@ import (
 	"testing"
 )
 
-func TestRouteDecisionOnlyAcceptsExactAllowedPair(t *testing.T) {
+func TestRouteDecisionUsesMicrosoftSystemOneProtocolAndParsesAnswer(t *testing.T) {
 	allowed := []routingCandidate{{Model: "safe", Effort: "low"}, {Model: "strong", Effort: "high"}}
 	fallback := routingChoice{Model: "safe", Effort: "low"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Errorf("auth header missing")
+		if r.URL.Path != "/base/providers/microsoft/v1/systemone" {
+			t.Errorf("path=%q", r.URL.Path)
 		}
-		var request routingRequest
+		if r.Header.Get("api-key") != "test-key" || r.Header.Get("Authorization") != "" {
+			t.Errorf("unexpected authentication headers")
+		}
+		var request map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if request.Model != "decision-test" || len(request.Prompt) > routingMaxPrompt || len(request.Candidates) != 2 {
-			t.Errorf("bad bounded request: %#v", request)
+		if request["model"] != "decision-1" || request["state"] != "hello" {
+			t.Errorf("request=%#v", request)
 		}
-		_, _ = w.Write([]byte(`{"model":"strong","effort":"high","confidence":0.99}`))
+		if len(request) != 3 {
+			t.Errorf("request has unexpected top-level fields: %#v", request)
+		}
+		questions, ok := request["questions"].(map[string]any)
+		if !ok || len(questions) != 1 {
+			t.Fatalf("questions=%#v", request["questions"])
+		}
+		_, _ = w.Write([]byte(`{"answers":{"selection":{"choice":"candidate_1","confidence":0.99}},"probabilities":{},"type":"decision","usage":{"tokens":3}}`))
 	}))
 	defer server.Close()
-	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "test-key", "decision-test", "hello", allowed, fallback, 0.8)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/base", "test-key", "decision-1", "hello", allowed, fallback, 0.8)
 	if !ok || got.Model != "strong" || got.Effort != "high" {
 		t.Fatalf("got %#v, %v", got, ok)
 	}
+}
 
-	for _, invalid := range []string{
-		`{"model":"strong","effort":"low","confidence":0.99}`,
-		`{"model":"evil","effort":"high","confidence":0.99}`,
-		`{"model":"strong","effort":"high","confidence":0.2}`,
-		`{"model":"strong","effort":"high","confidence":0.99,"action":"run"}`,
-		`{"model":"strong","effort":"high"}`,
-		`{"model":"strong","effort":"high","confidence":null}`,
+func TestRouteDecisionFallsBackForInvalidResponsesAndHTTPFailures(t *testing.T) {
+	fallback := routingChoice{Model: "safe", Effort: "low"}
+	allowed := []routingCandidate{{Model: "safe", Effort: "low"}, {Model: "strong", Effort: "high"}}
+	for _, body := range []string{
+		`{"answers":{"selection":{"choice":"candidate_1","confidence":0.2}}}`,
+		`{"answers":{"selection":{"choice":"candidate_1"}}}`,
+		`{"answers":{"selection":{"choice":"candidate_99","confidence":0.9}}}`,
+		`{"answers":{"selection":{"choice":"candidate_1","confidence":"NaN"}}}`,
+		`{"answers":{}}`, `{bad json}`,
 	} {
-		t.Run(strings.ReplaceAll(invalid, "/", "_"), func(t *testing.T) {
-			bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(invalid)) }))
-			defer bad.Close()
-			got, ok := routeDecision(context.Background(), fixtureClient(bad), "https://router.test/v1/route", "key", "decision-test", "hello", allowed, fallback, 0.8)
-			if ok || got != fallback {
-				t.Fatalf("invalid decision accepted: %#v %v", got, ok)
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+			defer server.Close()
+			got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test", "key", "decision-1", "hello", allowed, fallback, 0.8)
+			if ok || got.Model != fallback.Model || got.Effort != fallback.Effort {
+				t.Fatalf("fallback=%#v,%v", got, ok)
 			}
 		})
 	}
-}
-
-func TestRouteDecisionFallsBackForOversizedPromptAndErrors(t *testing.T) {
-	fallback := routingChoice{Model: "safe", Effort: "low"}
-	allowed := []routingCandidate{{Model: "safe", Effort: "low"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }))
 	defer server.Close()
-	for _, prompt := range []string{"hello", strings.Repeat("x", routingMaxPrompt+1)} {
-		got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "key", "decision-test", prompt, allowed, fallback, 0.5)
-		if ok || got != fallback {
-			t.Fatalf("expected deterministic fallback: %#v %v", got, ok)
-		}
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test", "key", "decision-1", strings.Repeat("x", routingMaxPrompt+1), allowed, fallback, 0.8)
+	if ok || got.Model != fallback.Model {
+		t.Fatalf("expected fallback %#v %v", got, ok)
 	}
 }
 
-func TestRouteDecisionAllowsUnsetEffortAndHonorsConfiguredModel(t *testing.T) {
-	fallback := routingChoice{Model: "safe", Effort: ""}
-	allowed := []routingCandidate{{Model: "safe", Effort: ""}, {Model: "strong", Effort: "high"}}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request routingRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatal(err)
-		}
-		if request.Model != "custom-router" {
-			t.Errorf("configured model ignored: %q", request.Model)
-		}
-		_, _ = w.Write([]byte(`{"model":"safe","effort":"","confidence":0.9}`))
+func TestRouteDecisionAllowsUnsetEffortAndHandlesNamedChoice(t *testing.T) {
+	fallback := routingChoice{Model: "safe"}
+	allowed := []routingCandidate{{Model: "safe"}, {Model: "strong", Effort: "high"}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"answers":{"selection":{"choice":{"model":"safe","effort":""},"confidence":"0.9"}}}`))
 	}))
 	defer server.Close()
-	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "key", "custom-router", "hello", allowed, fallback, 0.5)
-	if !ok || got != fallback {
-		t.Fatalf("unset-effort choice not accepted: %#v %v", got, ok)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test", "key", "decision-1", "hello", allowed, fallback, 0.5)
+	if !ok || got.Model != "safe" || got.Effort != "" {
+		t.Fatalf("unset effort rejected: %#v %v", got, ok)
 	}
 }
 
 func TestRoutingHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/redirect" {
+		if r.URL.Path == "/providers/microsoft/v1/systemone" {
 			http.Redirect(w, r, "/destination", http.StatusTemporaryRedirect)
 			return
 		}
@@ -95,9 +94,9 @@ func TestRoutingHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 	fallback := routingChoice{Model: "safe", Effort: "low"}
-	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/redirect", "secret", "router", "hello", []routingCandidate{{Model: "safe", Effort: "low"}}, fallback, 0.5)
-	if ok || got != fallback || called {
-		t.Fatalf("redirect should not be followed: %#v %v called=%v", got, ok, called)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test", "secret", "decision-1", "hello", []routingCandidate{{Model: "safe", Effort: "low"}}, fallback, 0.5)
+	if ok || got.Model != fallback.Model || called {
+		t.Fatalf("redirect followed: %#v %v called=%v", got, ok, called)
 	}
 }
 

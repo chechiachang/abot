@@ -392,8 +392,8 @@ func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Pol
 				candidates = append(candidates, candidate)
 			}
 		}
-		// Unset effort is valid for any globally allowed model. Nonempty
-		// efforts must be declared for that model and supported by the adapter.
+		// The unset fallback is valid for every model; nonempty efforts must
+		// be explicitly declared and supported by the Azure adapter.
 		appendCandidate("")
 		for _, effort := range p.ModelThinkingLevels[model] {
 			if supportedAzureReasoningEffort(effort) {
