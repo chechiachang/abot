@@ -262,7 +262,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("telegram.response_inline_threshold", DefaultResponseInlineThreshold)
 	v.SetDefault("r2.max_bytes", int64(5<<20))
 	v.SetDefault("r2.region", "auto")
-	v.SetDefault("r2.presign_expiry", time.Hour)
+	v.SetDefault("r2.presign_expiry", 14*24*time.Hour)
 	v.SetDefault("url_reader.timeout", 30*time.Second)
 	v.SetDefault("url_reader.max_bytes", int64(10<<20))
 	v.SetDefault("url_reader.max_output_bytes", 12<<10)

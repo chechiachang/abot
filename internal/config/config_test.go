@@ -53,6 +53,12 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 }
 
+func TestDefaultR2PresignExpiryIsFourteenDays(t *testing.T) {
+	if got := NewViper().GetDuration("r2.presign_expiry"); got != 14*24*time.Hour {
+		t.Fatalf("default R2 presign expiry = %s; want 336h", got)
+	}
+}
+
 func TestLoadRejectsUnsupportedReasoningEffort(t *testing.T) {
 	t.Setenv("ABOT_AZURE_REASONING_EFFORT", "extreme")
 	if _, err := Load(NewViper()); err == nil {
