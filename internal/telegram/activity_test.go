@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,6 +51,16 @@ func TestActivityReporterKeepsProgressInSameMessage(t *testing.T) {
 	reporter.mu.Unlock()
 	reporter.OnEvent(workflow.Event{Agent: "coding_agent", Tool: "read", ToolState: "started"})
 	reporter.OnEvent(workflow.Event{Agent: "coding_agent", Tool: "read", ToolState: "completed"})
+	score := 0.696
+	reporter.OnEvent(workflow.Event{Kind: workflow.EventSelection, Agent: "coordinator", Selection: &workflow.Selection{
+		SystemOne: "selected", Confidence: &score, MinConfidence: 0.6, CandidateCount: 4,
+		PreviousModel: "gpt-6-luna", Model: "gpt-6.1-sol", Effort: "xhigh",
+	}})
+	reporter.mu.Lock()
+	for i := 0; i < 15; i++ {
+		reporter.addProgressLocked(fmt.Sprintf("Completed tool %d", i))
+	}
+	reporter.mu.Unlock()
 	reporter.Finish("Completed.")
 
 	if len(edits) < 2 {
@@ -59,12 +70,40 @@ func TestActivityReporterKeepsProgressInSameMessage(t *testing.T) {
 		t.Errorf("coding-agent progress edit = %q", edits[1])
 	}
 	final := edits[len(edits)-1]
-	for _, want := range []string{"Completed.", "Progress:", "<code>coding_agent</code>", "<code>read</code>", "completed"} {
+	for _, want := range []string{"Completed.", "Progress:", "Coordinator:", "System One: selected", "score 0.6960", "minimum 0.6", "candidates 4", "Model using: <code>gpt-6.1-sol</code> / xhigh", "Model changed: <code>gpt-6-luna</code> / default", "Completed tool 14"} {
 		if !strings.Contains(final, want) {
 			t.Errorf("final progress message %q does not contain %q", final, want)
 		}
 	}
 	if strings.Contains(final, "private chain of thought") {
 		t.Fatalf("progress message exposed generated model text: %q", final)
+	}
+}
+
+func TestSelectionProgressFallbackAndUnchangedModel(t *testing.T) {
+	score := 0.08249701028169465
+	for _, test := range []struct {
+		name      string
+		selection workflow.Selection
+		want      []string
+	}{
+		{"low confidence", workflow.Selection{SystemOne: "fallback", Confidence: &score, MinConfidence: 0.6, CandidateCount: 4, HTTPStatus: 200, FallbackReason: "low_confidence"}, []string{"score 0.0825", "minimum 0.6", "low_confidence", "HTTP 200"}},
+		{"HTTP failure", workflow.Selection{SystemOne: "fallback", HTTPStatus: 400, FallbackReason: "http_status"}, []string{"score unavailable", "HTTP 400"}},
+		{"disabled", workflow.Selection{SystemOne: "disabled"}, []string{"System One: disabled"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			selection := test.selection
+			selection.Model, selection.PreviousModel = "gpt-6-luna", "gpt-6-luna"
+			selection.Effort, selection.PreviousEffort = "medium", "medium"
+			text := strings.Join(selectionProgressLines(selection), "\n")
+			for _, want := range append(test.want, "Model using: `gpt-6-luna` / medium") {
+				if !strings.Contains(text, want) {
+					t.Errorf("progress %q missing %q", text, want)
+				}
+			}
+			if strings.Contains(text, "changed:") {
+				t.Errorf("unchanged selection reported a change: %q", text)
+			}
+		})
 	}
 }

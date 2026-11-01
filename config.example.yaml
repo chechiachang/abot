@@ -1,6 +1,13 @@
+# Optional System One selector; model is the Azure deployment name.
+# Supply credentials only through ABOT_SYSTEM_ONE_API_KEY.
+system_one:
+  enabled: false
+  endpoint: https://myopenai.openai.azure.com/providers/microsoft/v1/systemone
+  model: decision-1
+  min_confidence: 0.6
 azure:
   base_url: https://myopenai.openai.azure.com/openai/v1
-  model: my-deployment
+  model: gpt-6-luna
   max_retries: 2
   timeout: 90s
 coding:
@@ -16,7 +23,7 @@ logfire:
   endpoint: https://logfire-api.pydantic.dev/v1/traces
 telegram:
   # R2 inline preference in UTF-16 units; offload always above 3500.
-  response_inline_threshold: 1000
+  response_inline_threshold: 3500
   admin_chat_id: 0
   allowed_user_ids: []
   admin_user_ids: []
@@ -24,9 +31,11 @@ telegram:
   approved_channel_ids: []
 capabilities:
   global:
+    # Azure deployment names; include azure.model as the fallback.
+    models: [gpt-6-luna, gpt-6.1-sol]
     tools: [read, bash, edit, write, read_url_content, read_quotes]
     mcp: [chrome-devtools, firecrawl]
-    thinking_levels: [none, low, medium, high]
+    thinking_levels: [medium, xhigh]
   defaults:
     tools: [read, bash, edit, write, read_url_content, read_quotes]
     mcp: []

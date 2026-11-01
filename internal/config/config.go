@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	SystemOne    SystemOneConfig               `mapstructure:"system_one"`
 	Azure        AzureConfig                   `mapstructure:"azure"`
 	Coding       CodingConfig                  `mapstructure:"coding"`
 	Instructions InstructionConfig             `mapstructure:"instructions"`
@@ -30,6 +31,14 @@ type Config struct {
 	R2           R2Config                      `mapstructure:"r2"`
 	URLReader    URLReaderConfig               `mapstructure:"url_reader"`
 	Logfire      LogfireConfig                 `mapstructure:"logfire"`
+}
+
+type SystemOneConfig struct {
+	Enabled       bool    `mapstructure:"enabled"`
+	Endpoint      string  `mapstructure:"endpoint"`
+	APIKey        string  `mapstructure:"api_key"`
+	Model         string  `mapstructure:"model"`
+	MinConfidence float64 `mapstructure:"min_confidence"`
 }
 
 type AzureConfig struct {
@@ -155,6 +164,11 @@ func NewViper() *viper.Viper {
 		"azure.api_key":                          {"ABOT_AZURE_API_KEY", "AZURE_OPENAI_API_KEY"},
 		"azure.model":                            {"ABOT_AZURE_MODEL", "AZURE_OPENAI_MODEL", "AZURE_OPENAI_DEPLOYMENT"},
 		"azure.reasoning_effort":                 {"ABOT_AZURE_REASONING_EFFORT", "AZURE_OPENAI_REASONING_EFFORT"},
+		"system_one.enabled":                     {"ABOT_SYSTEM_ONE_ENABLED"},
+		"system_one.endpoint":                    {"ABOT_SYSTEM_ONE_ENDPOINT"},
+		"system_one.api_key":                     {"ABOT_SYSTEM_ONE_API_KEY"},
+		"system_one.model":                       {"ABOT_SYSTEM_ONE_MODEL"},
+		"system_one.min_confidence":              {"ABOT_SYSTEM_ONE_MIN_CONFIDENCE"},
 		"azure.timeout":                          {"ABOT_AZURE_TIMEOUT", "AZURE_OPENAI_TIMEOUT"},
 		"azure.max_retries":                      {"ABOT_AZURE_MAX_RETRIES", "AZURE_OPENAI_MAX_RETRIES"},
 		"policy_file":                            {"ABOT_POLICY_FILE"},
@@ -311,7 +325,7 @@ func Load(v *viper.Viper) (Config, error) {
 	if v.InConfig("azure.api_key") || v.InConfig("azure.api-key") {
 		return Config{}, invalid("azure.api_key", "do not store secrets in a config file; use AZURE_OPENAI_API_KEY")
 	}
-	for key, envName := range map[string]string{"telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN", "r2.access_key_id": "ABOT_R2_ACCESS_KEY_ID", "r2.secret_access_key": "ABOT_R2_SECRET_ACCESS_KEY"} {
+	for key, envName := range map[string]string{"system_one.api_key": "ABOT_SYSTEM_ONE_API_KEY", "telegram.bot_token": "TELEGRAM_BOT_TOKEN", "telegram.morsel_api_key": "MORSEL_API_KEY", "url_reader.firecrawl_api_key": "FIRECRAWL_API_KEY", "logfire.token": "LOGFIRE_TOKEN", "r2.access_key_id": "ABOT_R2_ACCESS_KEY_ID", "r2.secret_access_key": "ABOT_R2_SECRET_ACCESS_KEY"} {
 		if v.InConfig(key) {
 			return Config{}, invalid(key, "do not store secrets in a config file; use "+envName)
 		}
@@ -338,6 +352,18 @@ func defaultConfigPath() (string, error) {
 }
 
 func (c Config) Validate() error {
+	if !(c.SystemOne.MinConfidence >= 0 && c.SystemOne.MinConfidence <= 1) {
+		return invalid("system_one.min_confidence", "must be between 0 and 1")
+	}
+	if c.SystemOne.Enabled {
+		if strings.TrimSpace(c.SystemOne.Endpoint) == "" || strings.TrimSpace(c.SystemOne.Model) == "" || strings.TrimSpace(c.SystemOne.APIKey) == "" {
+			return invalid("system_one", "enabled routing requires endpoint/model and ABOT_SYSTEM_ONE_API_KEY")
+		}
+		u, err := url.Parse(c.SystemOne.Endpoint)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
+			return invalid("system_one.endpoint", "must be an HTTPS URL without credentials or a fragment")
+		}
+	}
 	if _, err := logrus.ParseLevel(c.Log.Level); err != nil {
 		return &Error{Field: "log.level", Cause: err}
 	}
@@ -348,9 +374,9 @@ func (c Config) Validate() error {
 		return invalid("azure.max_retries", "must be between 0 and 5")
 	}
 	switch c.Azure.ReasoningEffort {
-	case "", "none", "low", "medium", "high":
+	case "", "none", "low", "medium", "high", "xhigh":
 	default:
-		return invalid("azure.reasoning_effort", "must be none, low, medium, or high")
+		return invalid("azure.reasoning_effort", "must be none, low, medium, high, or xhigh")
 	}
 	if c.Coding.CommandTimeout <= 0 || c.Coding.MaxOutputBytes <= 0 || c.Coding.MaxOutputBytes > 10<<20 {
 		return invalid("coding", "command timeout and output limit must be positive; output is capped at 10 MiB")
@@ -508,12 +534,6 @@ func (c Config) EffectivePolicy() policy.Policy {
 	if c.Azure.ReasoningEffort != "" {
 		if len(p.Global.ThinkingLevels) == 0 {
 			p.Global.ThinkingLevels = []string{c.Azure.ReasoningEffort}
-		}
-		if p.ModelThinkingLevels == nil {
-			p.ModelThinkingLevels = make(map[string][]string)
-		}
-		if len(p.ModelThinkingLevels[c.Azure.Model]) == 0 {
-			p.ModelThinkingLevels[c.Azure.Model] = []string{c.Azure.ReasoningEffort}
 		}
 	}
 	return p

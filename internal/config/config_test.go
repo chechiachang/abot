@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,6 +134,22 @@ mcp:
 	}
 }
 
+func TestEffectivePolicyKeepsSharedEffortsWithAzureDefault(t *testing.T) {
+	cfg := Config{
+		Azure: AzureConfig{Model: "model-a", ReasoningEffort: "low"},
+		Capabilities: policy.ConfiguredCapabilities{
+			Global: policy.Capabilities{Models: []string{"model-a", "model-b"}, ThinkingLevels: []string{"low", "high"}},
+		},
+	}
+	p := cfg.EffectivePolicy()
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if p.Defaults.Model != "model-a" || p.Defaults.ThinkingLevel != "low" || len(p.ThinkingLevels("model-a")) != 2 || len(p.ThinkingLevels("model-b")) != 2 {
+		t.Fatalf("Azure default must not narrow shared model/effort choices: %#v", p)
+	}
+}
+
 func TestValidateMCPRejectsUnconfiguredPolicyAndEmbeddedEndpointCredentials(t *testing.T) {
 	base := Config{Azure: AzureConfig{Model: "model"}, Capabilities: policy.ConfiguredCapabilities{
 		Global:   policy.Capabilities{Models: []string{"model"}, MCP: []string{"missing"}},
@@ -148,5 +165,16 @@ func TestValidateMCPRejectsUnconfiguredPolicyAndEmbeddedEndpointCredentials(t *t
 	base.MCP.Connections = []MCPConnection{{Name: "http", Transport: "http", Endpoint: "https://user:secret@example.test/mcp"}}
 	if err := base.ValidateMCP(); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("embedded credentials error = %v", err)
+	}
+}
+
+func TestValidateSystemOneConfidenceRejectsNaN(t *testing.T) {
+	cfg := Config{SystemOne: SystemOneConfig{MinConfidence: 0.5}, Log: LogConfig{Level: "info"}, Azure: AzureConfig{Timeout: 1}, Coding: CodingConfig{CommandTimeout: 1, MaxOutputBytes: 1}, Runtime: RuntimeConfig{TurnTimeout: 1}, Media: MediaConfig{MaxBytes: 1024, MaxDuration: 3600000000000, MaxPages: 1, MaxExtractBytes: 1024, Retention: 3600000000000, Root: "media"}, Telegram: TelegramConfig{ResponseInlineThreshold: 1}, URLReader: URLReaderConfig{Timeout: 1, MaxBytes: 1024, MaxOutputBytes: 1024}, Instructions: InstructionConfig{SystemFile: "system"}, Capabilities: policy.ConfiguredCapabilities{Global: policy.Capabilities{Models: []string{"m"}}, Defaults: policy.Selection{Model: "m"}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid confidence rejected: %v", err)
+	}
+	cfg.SystemOne.MinConfidence = math.NaN()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected NaN confidence threshold to fail")
 	}
 }

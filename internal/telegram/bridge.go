@@ -728,6 +728,7 @@ type activityReporter struct {
 	status    string
 	finished  bool
 	progress  []string
+	selection []string
 	stop      chan struct{}
 	done      chan struct{}
 	stopOnce  sync.Once
@@ -749,6 +750,13 @@ func newActivityReporter(bridge *Bridge, chatID, messageID int64, runID ...strin
 
 func (r *activityReporter) OnEvent(event workflow.Event) {
 	if r.messageID == 0 {
+		return
+	}
+	if event.Kind == workflow.EventSelection && event.Selection != nil {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.selection = selectionProgressLines(*event.Selection)
+		r.editLocked(false)
 		return
 	}
 	status := ""
@@ -852,10 +860,43 @@ func (r *activityReporter) keyboardLocked() *InlineKeyboardMarkup {
 
 func (r *activityReporter) renderLocked() string {
 	text := r.status
+	if len(r.selection) > 0 {
+		text += "\n\nCoordinator:\n• " + strings.Join(r.selection, "\n• ")
+	}
 	if len(r.progress) > 0 {
 		text += "\n\nProgress:\n• " + strings.Join(r.progress, "\n• ")
 	}
 	return text
+}
+
+func selectionProgressLines(selection workflow.Selection) []string {
+	route := "System One: " + progressLabel(selection.SystemOne)
+	if selection.SystemOne != "disabled" {
+		score := "unavailable"
+		if selection.Confidence != nil {
+			score = fmt.Sprintf("%.4f", *selection.Confidence)
+		}
+		route += fmt.Sprintf(" · score %s · minimum %g · candidates %d", score, selection.MinConfidence, selection.CandidateCount)
+		if selection.FallbackReason != "" {
+			route += " · " + progressLabel(selection.FallbackReason)
+		}
+		if selection.HTTPStatus != 0 {
+			route += fmt.Sprintf(" · HTTP %d", selection.HTTPStatus)
+		}
+	}
+	pair := func(model, effort string) string {
+		if effort == "" {
+			effort = "default"
+		}
+		return "`" + progressLabel(model) + "` / " + progressLabel(effort)
+	}
+	lines := []string{route, "Model using: " + pair(selection.Model, selection.Effort)}
+	if selection.PreviousModel != selection.Model {
+		lines = append(lines, "Model changed: "+pair(selection.PreviousModel, selection.PreviousEffort)+" → "+pair(selection.Model, selection.Effort))
+	} else if selection.PreviousEffort != selection.Effort {
+		lines = append(lines, "Reasoning changed: "+pair(selection.PreviousModel, selection.PreviousEffort)+" → "+pair(selection.Model, selection.Effort))
+	}
+	return lines
 }
 
 func (r *activityReporter) Finish(text string) {

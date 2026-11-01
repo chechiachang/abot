@@ -183,12 +183,14 @@ func TestNoneRetryRequiresToolsAndNoConfiguredEffort(t *testing.T) {
 }
 
 func TestMakeRequestSetsConfiguredReasoningEffort(t *testing.T) {
-	body, err := makeRequest(&adkmodel.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("hello", genai.RoleUser)}}, "deployment", "none", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if body.ReasoningEffort != "none" {
-		t.Fatalf("reasoning effort = %q", body.ReasoningEffort)
+	for _, effort := range []string{"none", "medium", "xhigh"} {
+		body, err := makeRequest(&adkmodel.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("hello", genai.RoleUser)}}, "deployment", effort, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body.ReasoningEffort != effort {
+			t.Fatalf("reasoning effort = %q", body.ReasoningEffort)
+		}
 	}
 }
 

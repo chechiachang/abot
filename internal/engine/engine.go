@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,8 +116,39 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	if err != nil {
 		return Result{}, err
 	}
+	selectionProgress := workflow.Selection{
+		Model: selection.Model, Effort: selection.ThinkingLevel,
+		PreviousModel: selection.Model, PreviousEffort: selection.ThinkingLevel,
+		SystemOne: "disabled", MinConfidence: e.Config.SystemOne.MinConfidence,
+	}
+	if e.Config.SystemOne.Enabled {
+		choice, selected := e.routeSelection(turnCtx, prompt, currentPolicy, selection)
+		selection.Model, selection.ThinkingLevel = choice.Model, choice.Effort
+		selectionProgress.Model, selectionProgress.Effort = choice.Model, choice.Effort
+		selectionProgress.Confidence, selectionProgress.CandidateCount = choice.Confidence, choice.CandidateCount
+		selectionProgress.HTTPStatus, selectionProgress.FallbackReason = choice.HTTPStatus, choice.FallbackReason
+		fields := logrus.Fields{"chat_id": chatID, "branch_id": branchID, "model": choice.Model, "effort": choice.Effort, "min_confidence": e.Config.SystemOne.MinConfidence, "candidate_count": choice.CandidateCount}
+		if choice.Confidence != nil {
+			fields["confidence"] = *choice.Confidence
+		}
+		if selected {
+			selectionProgress.SystemOne = "selected"
+			e.logInfo("system one route selected", fields)
+		} else {
+			selectionProgress.SystemOne = "fallback"
+			fields["reason"], fields["http_status"] = choice.FallbackReason, choice.HTTPStatus
+			e.logInfo("system one route fallback", fields)
+		}
+	}
+	if selectionProgress.PreviousModel != selection.Model || selectionProgress.PreviousEffort != selection.ThinkingLevel {
+		e.logInfo("agent turn model selection changed", logrus.Fields{
+			"chat_id": chatID, "branch_id": branchID,
+			"previous_model": selectionProgress.PreviousModel, "previous_effort": selectionProgress.PreviousEffort,
+			"model": selection.Model, "effort": selection.ThinkingLevel,
+		})
+	}
 	e.logInfo("agent turn policy selected", logrus.Fields{
-		"chat_id": chatID, "branch_id": branchID, "model": selection.Model,
+		"chat_id": chatID, "branch_id": branchID, "model": selection.Model, "effort": selection.ThinkingLevel,
 		"tool_count": len(selection.Tools), "skill_count": len(selection.Skills), "mcp_connection_count": len(selection.MCP),
 	})
 	instruction, err := instructions.Load(e.Config.Instructions.SystemFile, e.Config.Instructions.SoulFile)
@@ -144,6 +176,9 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		return Result{}, fmt.Errorf("create request ID: %w", err)
 	}
 	ids := workflow.IDs{RequestID: requestID, ChatID: chatID}
+	if onEvent != nil {
+		onEvent(workflow.Event{IDs: ids, Kind: workflow.EventSelection, Agent: "coordinator", Selection: &selectionProgress})
+	}
 	branch, err := e.State.EnsureBranch(turnCtx, chatID, branchID)
 	if err != nil {
 		return Result{}, err
@@ -371,4 +406,38 @@ func errorKind(err error) string {
 		return "cancelled"
 	}
 	return "agent_error"
+}
+
+func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Policy, fallback policy.Selection) (routingChoice, bool) {
+	candidates := make([]routingCandidate, 0, routingMaxCandidates)
+	for _, model := range p.Global.Models {
+		appendCandidate := func(effort string) {
+			candidate := routingCandidate{Model: model, Effort: effort}
+			if len(candidates) < routingMaxCandidates && !slices.Contains(candidates, candidate) {
+				candidates = append(candidates, candidate)
+			}
+		}
+		efforts := p.ThinkingLevels(model)
+		if len(efforts) == 0 {
+			appendCandidate("")
+		}
+		for _, effort := range efforts {
+			if supportedAzureReasoningEffort(effort) {
+				appendCandidate(effort)
+			}
+		}
+	}
+	choice, selected := routeDecision(ctx, routingHTTPClient, e.Config.SystemOne.Endpoint,
+		e.Config.SystemOne.APIKey, e.Config.SystemOne.Model, prompt, candidates,
+		routingChoice{Model: fallback.Model, Effort: fallback.ThinkingLevel}, e.Config.SystemOne.MinConfidence)
+	return choice, selected
+}
+
+func supportedAzureReasoningEffort(effort string) bool {
+	switch effort {
+	case "", "none", "low", "medium", "high", "xhigh":
+		return true
+	default:
+		return false
+	}
 }

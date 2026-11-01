@@ -131,9 +131,9 @@ func NewModel(cfg Config) (*Model, error) {
 		return nil, errors.New("azure max retries must be between 0 and 5")
 	}
 	switch cfg.ReasoningEffort {
-	case "", "none", "low", "medium", "high":
+	case "", "none", "low", "medium", "high", "xhigh":
 	default:
-		return nil, errors.New("azure reasoning effort must be none, low, medium, or high")
+		return nil, errors.New("azure reasoning effort must be none, low, medium, high, or xhigh")
 	}
 	return &Model{
 		baseURL:         baseURL,
@@ -166,6 +166,15 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 		body, err := makeRequest(req, m.model, m.reasoningEffort, stream)
 		if err != nil {
 			observedYield(nil, err)
+			return
+		}
+		if len(body.Tools) > 0 && body.ReasoningEffort != "" && body.ReasoningEffort != "none" {
+			responseBody, err := makeResponsesRequest(req, body)
+			if err != nil {
+				observedYield(nil, err)
+				return
+			}
+			m.generateResponses(ctx, responseBody, observedYield)
 			return
 		}
 		if stream {
@@ -305,14 +314,18 @@ func (m *Model) send(ctx context.Context, body chatRequest) (*http.Response, err
 	if err != nil {
 		return nil, &ProviderError{Kind: ErrorInvalidRequest, Cause: err}
 	}
+	return m.sendRequest(ctx, "/chat/completions", encoded, body.Stream, body.ReasoningEffort)
+}
+
+func (m *Model) sendRequest(ctx context.Context, path string, encoded []byte, stream bool, effort string) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/chat/completions", bytes.NewReader(encoded))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+path, bytes.NewReader(encoded))
 		if err != nil {
 			return nil, &ProviderError{Kind: ErrorInvalidRequest, Cause: err}
 		}
 		req.Header.Set("api-key", m.apiKey)
 		req.Header.Set("Content-Type", "application/json")
-		if body.Stream {
+		if stream {
 			req.Header.Set("Accept", "text/event-stream")
 		}
 		resp, err := m.client.Do(req)
@@ -368,7 +381,7 @@ func (m *Model) send(ctx context.Context, body chatRequest) (*http.Response, err
 		}
 		return nil, &ProviderError{
 			Kind: kind, StatusCode: resp.StatusCode, Code: detail.Error.Code, Param: detail.Error.Param,
-			ReasoningEffortWasSent: body.ReasoningEffort != "",
+			ReasoningEffortWasSent: effort != "",
 			ReasoningEffortIssue:   classifyReasoningEffortIssue(detail.Error.Code, detail.Error.Message),
 		}
 	}

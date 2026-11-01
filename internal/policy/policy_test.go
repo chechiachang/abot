@@ -73,6 +73,27 @@ func TestValidateRejectsUnavailableModelAndThinkingLevel(t *testing.T) {
 	}
 }
 
+func TestThinkingLevelsUseSharedDefaultsAndRespectModelOverrides(t *testing.T) {
+	p := testPolicy()
+	p.Global.Models = []string{"model-a", "model-b"}
+	p.Defaults.ThinkingLevel = "low"
+	if _, err := p.Effective(0); err != nil {
+		t.Fatalf("shared thinking level rejected: %v", err)
+	}
+	p.ModelThinkingLevels = map[string][]string{"model-a": {"none"}}
+	if _, err := p.Effective(0); err == nil {
+		t.Fatal("per-model restriction must reject shared low effort")
+	}
+	p.Defaults.Model = "model-b"
+	if _, err := p.Effective(0); err != nil {
+		t.Fatalf("unrestricted model must still inherit shared levels: %v", err)
+	}
+	p.ModelThinkingLevels["model-b"] = []string{}
+	if _, err := p.Effective(0); err == nil {
+		t.Fatal("explicit empty levels must allow only unset effort")
+	}
+}
+
 func TestChannelGrantsOnlyAuthorizePassiveChannelIngestion(t *testing.T) {
 	p := testPolicy()
 	p.Grants = []Grant{{Kind: "channel", ID: -300}}

@@ -64,7 +64,8 @@ func TestLoadRejectsR2CredentialsInConfig(t *testing.T) {
 }
 
 func TestR2OptionalExampleAndValidation(t *testing.T) {
-	t.Setenv("ABOT_AZURE_MODEL", "test-model")
+	t.Setenv("ABOT_SYSTEM_ONE_ENABLED", "false")
+	t.Setenv("ABOT_AZURE_MODEL", "gpt-6-luna")
 	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
 	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	v := NewViper()
@@ -73,7 +74,7 @@ func TestR2OptionalExampleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.Telegram.ResponseInlineThreshold != 1000 {
+	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.Telegram.ResponseInlineThreshold != 3500 {
 		t.Fatal("invalid optional defaults")
 	}
 	cfg.R2.AccessKeyID = "private-value"
