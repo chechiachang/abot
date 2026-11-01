@@ -23,7 +23,7 @@ func TestLoadR2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.R2.Endpoint != "https://account.r2.cloudflarestorage.com" || cfg.R2.Bucket != "env-bucket" || cfg.R2.Region != "auto" || cfg.R2.PresignExpiry != time.Hour || cfg.R2.AccessKeyID != "test-id" || cfg.R2.SecretAccessKey != "test-secret" {
+	if cfg.R2.Endpoint != "https://account.r2.cloudflarestorage.com" || cfg.R2.Bucket != "env-bucket" || cfg.R2.Region != "auto" || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.R2.AccessKeyID != "test-id" || cfg.R2.SecretAccessKey != "test-secret" {
 		t.Fatal("R2 file settings, environment overrides, or defaults were not loaded")
 	}
 	cfg.R2.AccessKeyID, cfg.R2.SecretAccessKey = "", ""
@@ -37,7 +37,11 @@ func TestLoadR2(t *testing.T) {
 		}
 	}
 	cfg.R2.Endpoint = "https://account.r2.cloudflarestorage.com"
-	for _, expiry := range []time.Duration{0, -time.Hour, 24 * time.Hour} {
+	cfg.R2.PresignExpiry = MaxR2PresignExpiry
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("rejected maximum R2 presign expiry: %v", err)
+	}
+	for _, expiry := range []time.Duration{0, -time.Hour, MaxR2PresignExpiry + time.Second} {
 		cfg.R2.PresignExpiry = expiry
 		if err := cfg.Validate(); err == nil {
 			t.Fatalf("accepted invalid expiry %v", expiry)
@@ -69,7 +73,7 @@ func TestR2OptionalExampleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.Telegram.ResponseInlineThreshold != 1000 {
+	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.Telegram.ResponseInlineThreshold != 1000 {
 		t.Fatal("invalid optional defaults")
 	}
 	cfg.R2.AccessKeyID = "private-value"

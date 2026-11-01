@@ -133,6 +133,8 @@ type R2Config struct {
 	SecretAccessKey string        `mapstructure:"secret_access_key"`
 }
 
+const MaxR2PresignExpiry = 7 * 24 * time.Hour
+
 type LogfireConfig struct {
 	Endpoint    string `mapstructure:"endpoint"`
 	Environment string `mapstructure:"environment"`
@@ -244,7 +246,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("telegram.response_inline_threshold", DefaultResponseInlineThreshold)
 	v.SetDefault("r2.max_bytes", int64(5<<20))
 	v.SetDefault("r2.region", "auto")
-	v.SetDefault("r2.presign_expiry", time.Hour)
+	v.SetDefault("r2.presign_expiry", MaxR2PresignExpiry)
 	v.SetDefault("url_reader.timeout", 30*time.Second)
 	v.SetDefault("url_reader.max_bytes", int64(10<<20))
 	v.SetDefault("url_reader.max_output_bytes", 12<<10)
@@ -563,8 +565,8 @@ func (c R2Config) Validate() error {
 	if strings.TrimSpace(c.Bucket) == "" || strings.ContainsAny(c.Bucket, "/\\?#") || strings.TrimSpace(c.Region) == "" {
 		return invalid("r2", "bucket and region are required; bucket must not contain path characters")
 	}
-	if c.PresignExpiry < time.Second || c.PresignExpiry >= 24*time.Hour {
-		return invalid("r2.presign_expiry", "must be at least 1s and below the bucket's 24h retention")
+	if c.PresignExpiry < time.Second || c.PresignExpiry > MaxR2PresignExpiry {
+		return invalid("r2.presign_expiry", "must be at least 1s and at most 7 days")
 	}
 	if c.MaxBytes < 1 || c.MaxBytes > 50<<20 {
 		return invalid("r2.max_bytes", "must be between 1 byte and 50 MiB")
