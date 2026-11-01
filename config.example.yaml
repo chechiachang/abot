@@ -50,7 +50,7 @@ r2:
   endpoint: https://664e4225fa00f97af165b5562ae199a9.r2.cloudflarestorage.com
   bucket: abot-share
   region: auto
-  presign_expiry: 1h
+  presign_expiry: 336h
   max_bytes: 5242880
 media:
   max_bytes: 10485760

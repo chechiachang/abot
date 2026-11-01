@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chechiachang/abot/internal/policy"
 	"github.com/spf13/pflag"
@@ -49,6 +50,12 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 	if cfg.Azure.Model != "flag-model" {
 		t.Fatalf("flag should override environment: got %q", cfg.Azure.Model)
+	}
+}
+
+func TestDefaultR2PresignExpiryIsFourteenDays(t *testing.T) {
+	if got := NewViper().GetDuration("r2.presign_expiry"); got != 14*24*time.Hour {
+		t.Fatalf("default R2 presign expiry = %s; want 336h", got)
 	}
 }
 
