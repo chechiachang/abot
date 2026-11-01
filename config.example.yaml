@@ -23,7 +23,7 @@ logfire:
   endpoint: https://logfire-api.pydantic.dev/v1/traces
 telegram:
   # R2 inline preference in UTF-16 units; offload always above 3500.
-  response_inline_threshold: 1000
+  response_inline_threshold: 3500
   admin_chat_id: 0
   allowed_user_ids: []
   admin_user_ids: []
