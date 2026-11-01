@@ -385,15 +385,9 @@ func errorKind(err error) string {
 func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Policy, fallback policy.Selection) (routingChoice, bool) {
 	candidates := make([]routingCandidate, 0, routingMaxCandidates)
 	for _, model := range p.Global.Models {
-		levels := p.Global.ThinkingLevels
-		if modelLevels, ok := p.ModelThinkingLevels[model]; ok {
-			levels = modelLevels
-		}
-		if len(levels) == 0 && model == fallback.Model {
-			levels = []string{fallback.ThinkingLevel}
-		}
+		levels := p.ModelThinkingLevels[model]
 		for _, effort := range levels {
-			if effort != "" && len(candidates) < routingMaxCandidates {
+			if len(candidates) < routingMaxCandidates {
 				candidate := routingCandidate{Model: model, Effort: effort}
 				found := false
 				for _, existing := range candidates {
@@ -408,8 +402,21 @@ func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Pol
 			}
 		}
 	}
+	if fallback.ThinkingLevel == "" {
+		fallbackCandidate := routingCandidate{Model: fallback.Model, Effort: ""}
+		found := false
+		for _, existing := range candidates {
+			if existing == fallbackCandidate {
+				found = true
+				break
+			}
+		}
+		if !found && len(candidates) < routingMaxCandidates {
+			candidates = append(candidates, fallbackCandidate)
+		}
+	}
 	choice, selected := routeDecision(ctx, routingHTTPClient, e.Config.SystemOne.Endpoint,
-		e.Config.SystemOne.APIKey, prompt, candidates,
+		e.Config.SystemOne.APIKey, e.Config.SystemOne.Model, prompt, candidates,
 		routingChoice{Model: fallback.Model, Effort: fallback.ThinkingLevel}, e.Config.SystemOne.MinConfidence)
 	return choice, selected
 }

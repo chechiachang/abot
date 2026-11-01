@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,5 +149,16 @@ func TestValidateMCPRejectsUnconfiguredPolicyAndEmbeddedEndpointCredentials(t *t
 	base.MCP.Connections = []MCPConnection{{Name: "http", Transport: "http", Endpoint: "https://user:secret@example.test/mcp"}}
 	if err := base.ValidateMCP(); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("embedded credentials error = %v", err)
+	}
+}
+
+func TestValidateSystemOneConfidenceRejectsNaN(t *testing.T) {
+	cfg := Config{SystemOne: SystemOneConfig{MinConfidence: 0.5}, Log: LogConfig{Level: "info"}, Azure: AzureConfig{Timeout: 1}, Coding: CodingConfig{CommandTimeout: 1, MaxOutputBytes: 1}, Runtime: RuntimeConfig{TurnTimeout: 1}, Media: MediaConfig{MaxBytes: 1024, MaxDuration: 3600000000000, MaxPages: 1, MaxExtractBytes: 1024, Retention: 3600000000000, Root: "media"}, Telegram: TelegramConfig{ResponseInlineThreshold: 1}, URLReader: URLReaderConfig{Timeout: 1, MaxBytes: 1024, MaxOutputBytes: 1024}, Instructions: InstructionConfig{SystemFile: "system"}, Capabilities: policy.ConfiguredCapabilities{Global: policy.Capabilities{Models: []string{"m"}}, Defaults: policy.Selection{Model: "m"}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid confidence rejected: %v", err)
+	}
+	cfg.SystemOne.MinConfidence = math.NaN()
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected NaN confidence threshold to fail")
 	}
 }

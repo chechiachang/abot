@@ -20,13 +20,13 @@ func TestRouteDecisionOnlyAcceptsExactAllowedPair(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if request.Model != "system-one-decision-1" || len(request.Prompt) > routingMaxPrompt || len(request.Candidates) != 2 {
+		if request.Model != "decision-test" || len(request.Prompt) > routingMaxPrompt || len(request.Candidates) != 2 {
 			t.Errorf("bad bounded request: %#v", request)
 		}
 		_, _ = w.Write([]byte(`{"model":"strong","effort":"high","confidence":0.99}`))
 	}))
 	defer server.Close()
-	got, ok := routeDecision(context.Background(), server.Client(), server.URL, "test-key", "hello", allowed, fallback, 0.8)
+	got, ok := routeDecision(context.Background(), server.Client(), server.URL, "test-key", "decision-test", "hello", allowed, fallback, 0.8)
 	if !ok || got.Model != "strong" || got.Effort != "high" {
 		t.Fatalf("got %#v, %v", got, ok)
 	}
@@ -36,11 +36,13 @@ func TestRouteDecisionOnlyAcceptsExactAllowedPair(t *testing.T) {
 		`{"model":"evil","effort":"high","confidence":0.99}`,
 		`{"model":"strong","effort":"high","confidence":0.2}`,
 		`{"model":"strong","effort":"high","confidence":0.99,"action":"run"}`,
+		`{"model":"strong","effort":"high"}`,
+		`{"model":"strong","effort":"high","confidence":null}`,
 	} {
 		t.Run(strings.ReplaceAll(invalid, "/", "_"), func(t *testing.T) {
 			bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(invalid)) }))
 			defer bad.Close()
-			got, ok := routeDecision(context.Background(), bad.Client(), bad.URL, "key", "hello", allowed, fallback, 0.8)
+			got, ok := routeDecision(context.Background(), bad.Client(), bad.URL, "key", "decision-test", "hello", allowed, fallback, 0.8)
 			if ok || got != fallback {
 				t.Fatalf("invalid decision accepted: %#v %v", got, ok)
 			}
@@ -54,9 +56,46 @@ func TestRouteDecisionFallsBackForOversizedPromptAndErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }))
 	defer server.Close()
 	for _, prompt := range []string{"hello", strings.Repeat("x", routingMaxPrompt+1)} {
-		got, ok := routeDecision(context.Background(), server.Client(), server.URL, "key", prompt, allowed, fallback, 0.5)
+		got, ok := routeDecision(context.Background(), server.Client(), server.URL, "key", "decision-test", prompt, allowed, fallback, 0.5)
 		if ok || got != fallback {
 			t.Fatalf("expected deterministic fallback: %#v %v", got, ok)
 		}
+	}
+}
+
+func TestRouteDecisionAllowsUnsetEffortAndHonorsConfiguredModel(t *testing.T) {
+	fallback := routingChoice{Model: "safe", Effort: ""}
+	allowed := []routingCandidate{{Model: "safe", Effort: ""}, {Model: "strong", Effort: "high"}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request routingRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Model != "custom-router" {
+			t.Errorf("configured model ignored: %q", request.Model)
+		}
+		_, _ = w.Write([]byte(`{"model":"safe","effort":"","confidence":0.9}`))
+	}))
+	defer server.Close()
+	got, ok := routeDecision(context.Background(), server.Client(), server.URL, "key", "custom-router", "hello", allowed, fallback, 0.5)
+	if !ok || got != fallback {
+		t.Fatalf("unset-effort choice not accepted: %#v %v", got, ok)
+	}
+}
+
+func TestRoutingHTTPClientDoesNotFollowRedirects(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/destination", http.StatusTemporaryRedirect)
+			return
+		}
+		called = true
+	}))
+	defer server.Close()
+	fallback := routingChoice{Model: "safe", Effort: "low"}
+	got, ok := routeDecision(context.Background(), routingHTTPClient, server.URL+"/redirect", "secret", "router", "hello", []routingCandidate{{Model: "safe", Effort: "low"}}, fallback, 0.5)
+	if ok || got != fallback || called {
+		t.Fatalf("redirect should not be followed: %#v %v called=%v", got, ok, called)
 	}
 }

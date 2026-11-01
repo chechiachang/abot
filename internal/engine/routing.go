@@ -24,12 +24,17 @@ type routingCandidate struct {
 	Effort string `json:"effort"`
 }
 
-var routingHTTPClient = &http.Client{Timeout: routingTimeout}
+var routingHTTPClient = &http.Client{
+	Timeout: routingTimeout,
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 type routingChoice struct {
-	Model      string  `json:"model"`
-	Effort     string  `json:"effort"`
-	Confidence float64 `json:"confidence"`
+	Model      string   `json:"model"`
+	Effort     string   `json:"effort"`
+	Confidence *float64 `json:"confidence"`
 }
 
 type routingRequest struct {
@@ -38,13 +43,13 @@ type routingRequest struct {
 	Candidates []routingCandidate `json:"candidates"`
 }
 
-func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, prompt string, candidates []routingCandidate, fallback routingChoice, minConfidence float64) (routingChoice, bool) {
+func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, model, prompt string, candidates []routingCandidate, fallback routingChoice, minConfidence float64) (routingChoice, bool) {
 	if client == nil || len(prompt) == 0 || len(prompt) > routingMaxPrompt || len(candidates) == 0 || len(candidates) > routingMaxCandidates {
 		return fallback, false
 	}
 	choices := make([]routingCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Model == "" || candidate.Effort == "" {
+		if candidate.Model == "" {
 			return fallback, false
 		}
 		if !slices.Contains(choices, candidate) {
@@ -54,7 +59,7 @@ func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, p
 	if !slices.Contains(choices, routingCandidate{Model: fallback.Model, Effort: fallback.Effort}) {
 		return fallback, false
 	}
-	body, err := json.Marshal(routingRequest{Model: "system-one-decision-1", Prompt: prompt, Candidates: choices})
+	body, err := json.Marshal(routingRequest{Model: model, Prompt: prompt, Candidates: choices})
 	if err != nil {
 		return fallback, false
 	}
@@ -84,7 +89,7 @@ func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, p
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return fallback, false
 	}
-	if choice.Confidence < minConfidence || choice.Confidence > 1 || strings.TrimSpace(choice.Model) != choice.Model || strings.TrimSpace(choice.Effort) != choice.Effort || !containsRouteChoice(choices, choice) {
+	if choice.Confidence == nil || *choice.Confidence < minConfidence || *choice.Confidence > 1 || strings.TrimSpace(choice.Model) != choice.Model || strings.TrimSpace(choice.Effort) != choice.Effort || !containsRouteChoice(choices, choice) {
 		return fallback, false
 	}
 	return routingChoice{Model: choice.Model, Effort: choice.Effort}, true

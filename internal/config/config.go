@@ -352,7 +352,7 @@ func defaultConfigPath() (string, error) {
 }
 
 func (c Config) Validate() error {
-	if c.SystemOne.MinConfidence < 0 || c.SystemOne.MinConfidence > 1 {
+	if !(c.SystemOne.MinConfidence >= 0 && c.SystemOne.MinConfidence <= 1) {
 		return invalid("system_one.min_confidence", "must be between 0 and 1")
 	}
 	if c.SystemOne.Enabled {
