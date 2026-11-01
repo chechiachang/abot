@@ -73,7 +73,7 @@ func TestR2OptionalExampleAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.Telegram.ResponseInlineThreshold != 1000 {
+	if cfg.R2.Enabled() || cfg.R2.MaxBytes != 5<<20 || cfg.R2.PresignExpiry != MaxR2PresignExpiry || cfg.Telegram.ResponseInlineThreshold != 3500 {
 		t.Fatal("invalid optional defaults")
 	}
 	cfg.R2.AccessKeyID = "private-value"
