@@ -1,3 +1,10 @@
+# Optional System One decision-1 model/effort selector; disabled by default.
+# Supply credentials only through ABOT_SYSTEM_ONE_API_KEY.
+system_one:
+  enabled: false
+  endpoint: https://router.example/v1/route
+  model: system-one-decision-1
+  min_confidence: 0.8
 azure:
   base_url: https://myopenai.openai.azure.com/openai/v1
   model: my-deployment

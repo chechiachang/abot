@@ -115,6 +115,15 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	if err != nil {
 		return Result{}, err
 	}
+	if e.Config.SystemOne.Enabled {
+		choice, selected := e.routeSelection(turnCtx, prompt, currentPolicy, selection)
+		selection.Model, selection.ThinkingLevel = choice.Model, choice.Effort
+		if selected {
+			e.logInfo("system one route selected", logrus.Fields{"model": choice.Model, "effort": choice.Effort})
+		} else {
+			e.logDebug("system one route fallback", logrus.Fields{"model": choice.Model, "effort": choice.Effort})
+		}
+	}
 	e.logInfo("agent turn policy selected", logrus.Fields{
 		"chat_id": chatID, "branch_id": branchID, "model": selection.Model,
 		"tool_count": len(selection.Tools), "skill_count": len(selection.Skills), "mcp_connection_count": len(selection.MCP),
@@ -371,4 +380,36 @@ func errorKind(err error) string {
 		return "cancelled"
 	}
 	return "agent_error"
+}
+
+func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Policy, fallback policy.Selection) (routingChoice, bool) {
+	candidates := make([]routingCandidate, 0, routingMaxCandidates)
+	for _, model := range p.Global.Models {
+		levels := p.Global.ThinkingLevels
+		if modelLevels, ok := p.ModelThinkingLevels[model]; ok {
+			levels = modelLevels
+		}
+		if len(levels) == 0 && model == fallback.Model {
+			levels = []string{fallback.ThinkingLevel}
+		}
+		for _, effort := range levels {
+			if effort != "" && len(candidates) < routingMaxCandidates {
+				candidate := routingCandidate{Model: model, Effort: effort}
+				found := false
+				for _, existing := range candidates {
+					if candidate == existing {
+						found = true
+						break
+					}
+				}
+				if !found {
+					candidates = append(candidates, candidate)
+				}
+			}
+		}
+	}
+	choice, selected := routeDecision(ctx, routingHTTPClient, e.Config.SystemOne.Endpoint,
+		e.Config.SystemOne.APIKey, prompt, candidates,
+		routingChoice{Model: fallback.Model, Effort: fallback.ThinkingLevel}, e.Config.SystemOne.MinConfidence)
+	return choice, selected
 }
