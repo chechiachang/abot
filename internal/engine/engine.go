@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -385,38 +386,32 @@ func errorKind(err error) string {
 func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Policy, fallback policy.Selection) (routingChoice, bool) {
 	candidates := make([]routingCandidate, 0, routingMaxCandidates)
 	for _, model := range p.Global.Models {
-		levels := p.ModelThinkingLevels[model]
-		for _, effort := range levels {
-			if len(candidates) < routingMaxCandidates {
-				candidate := routingCandidate{Model: model, Effort: effort}
-				found := false
-				for _, existing := range candidates {
-					if candidate == existing {
-						found = true
-						break
-					}
-				}
-				if !found {
-					candidates = append(candidates, candidate)
-				}
+		appendCandidate := func(effort string) {
+			candidate := routingCandidate{Model: model, Effort: effort}
+			if len(candidates) < routingMaxCandidates && !slices.Contains(candidates, candidate) {
+				candidates = append(candidates, candidate)
 			}
 		}
-	}
-	if fallback.ThinkingLevel == "" {
-		fallbackCandidate := routingCandidate{Model: fallback.Model, Effort: ""}
-		found := false
-		for _, existing := range candidates {
-			if existing == fallbackCandidate {
-				found = true
-				break
+		// Unset effort is valid for any globally allowed model. Nonempty
+		// efforts must be declared for that model and supported by the adapter.
+		appendCandidate("")
+		for _, effort := range p.ModelThinkingLevels[model] {
+			if supportedAzureReasoningEffort(effort) {
+				appendCandidate(effort)
 			}
-		}
-		if !found && len(candidates) < routingMaxCandidates {
-			candidates = append(candidates, fallbackCandidate)
 		}
 	}
 	choice, selected := routeDecision(ctx, routingHTTPClient, e.Config.SystemOne.Endpoint,
 		e.Config.SystemOne.APIKey, e.Config.SystemOne.Model, prompt, candidates,
 		routingChoice{Model: fallback.Model, Effort: fallback.ThinkingLevel}, e.Config.SystemOne.MinConfidence)
 	return choice, selected
+}
+
+func supportedAzureReasoningEffort(effort string) bool {
+	switch effort {
+	case "", "none", "low", "medium", "high":
+		return true
+	default:
+		return false
+	}
 }

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -44,7 +46,7 @@ type routingRequest struct {
 }
 
 func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, model, prompt string, candidates []routingCandidate, fallback routingChoice, minConfidence float64) (routingChoice, bool) {
-	if client == nil || len(prompt) == 0 || len(prompt) > routingMaxPrompt || len(candidates) == 0 || len(candidates) > routingMaxCandidates {
+	if client == nil || !isHTTPSURL(endpoint) || strings.TrimSpace(apiKey) == "" || strings.TrimSpace(model) == "" || minConfidence < 0 || minConfidence > 1 || math.IsNaN(minConfidence) || len(prompt) == 0 || len(prompt) > routingMaxPrompt || len(candidates) == 0 || len(candidates) > routingMaxCandidates {
 		return fallback, false
 	}
 	choices := make([]routingCandidate, 0, len(candidates))
@@ -89,10 +91,15 @@ func routeDecision(ctx context.Context, client *http.Client, endpoint, apiKey, m
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return fallback, false
 	}
-	if choice.Confidence == nil || *choice.Confidence < minConfidence || *choice.Confidence > 1 || strings.TrimSpace(choice.Model) != choice.Model || strings.TrimSpace(choice.Effort) != choice.Effort || !containsRouteChoice(choices, choice) {
+	if choice.Confidence == nil || math.IsNaN(*choice.Confidence) || math.IsInf(*choice.Confidence, 0) || *choice.Confidence < minConfidence || *choice.Confidence > 1 || strings.TrimSpace(choice.Model) != choice.Model || strings.TrimSpace(choice.Effort) != choice.Effort || !containsRouteChoice(choices, choice) {
 		return fallback, false
 	}
 	return routingChoice{Model: choice.Model, Effort: choice.Effort}, true
+}
+
+func isHTTPSURL(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == ""
 }
 
 func containsRouteChoice(choices []routingCandidate, choice routingChoice) bool {

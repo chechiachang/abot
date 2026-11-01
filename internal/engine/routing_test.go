@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,7 @@ func TestRouteDecisionOnlyAcceptsExactAllowedPair(t *testing.T) {
 		_, _ = w.Write([]byte(`{"model":"strong","effort":"high","confidence":0.99}`))
 	}))
 	defer server.Close()
-	got, ok := routeDecision(context.Background(), server.Client(), server.URL, "test-key", "decision-test", "hello", allowed, fallback, 0.8)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "test-key", "decision-test", "hello", allowed, fallback, 0.8)
 	if !ok || got.Model != "strong" || got.Effort != "high" {
 		t.Fatalf("got %#v, %v", got, ok)
 	}
@@ -42,7 +43,7 @@ func TestRouteDecisionOnlyAcceptsExactAllowedPair(t *testing.T) {
 		t.Run(strings.ReplaceAll(invalid, "/", "_"), func(t *testing.T) {
 			bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(invalid)) }))
 			defer bad.Close()
-			got, ok := routeDecision(context.Background(), bad.Client(), bad.URL, "key", "decision-test", "hello", allowed, fallback, 0.8)
+			got, ok := routeDecision(context.Background(), fixtureClient(bad), "https://router.test/v1/route", "key", "decision-test", "hello", allowed, fallback, 0.8)
 			if ok || got != fallback {
 				t.Fatalf("invalid decision accepted: %#v %v", got, ok)
 			}
@@ -56,7 +57,7 @@ func TestRouteDecisionFallsBackForOversizedPromptAndErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }))
 	defer server.Close()
 	for _, prompt := range []string{"hello", strings.Repeat("x", routingMaxPrompt+1)} {
-		got, ok := routeDecision(context.Background(), server.Client(), server.URL, "key", "decision-test", prompt, allowed, fallback, 0.5)
+		got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "key", "decision-test", prompt, allowed, fallback, 0.5)
 		if ok || got != fallback {
 			t.Fatalf("expected deterministic fallback: %#v %v", got, ok)
 		}
@@ -77,7 +78,7 @@ func TestRouteDecisionAllowsUnsetEffortAndHonorsConfiguredModel(t *testing.T) {
 		_, _ = w.Write([]byte(`{"model":"safe","effort":"","confidence":0.9}`))
 	}))
 	defer server.Close()
-	got, ok := routeDecision(context.Background(), server.Client(), server.URL, "key", "custom-router", "hello", allowed, fallback, 0.5)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/v1/route", "key", "custom-router", "hello", allowed, fallback, 0.5)
 	if !ok || got != fallback {
 		t.Fatalf("unset-effort choice not accepted: %#v %v", got, ok)
 	}
@@ -94,8 +95,25 @@ func TestRoutingHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 	fallback := routingChoice{Model: "safe", Effort: "low"}
-	got, ok := routeDecision(context.Background(), routingHTTPClient, server.URL+"/redirect", "secret", "router", "hello", []routingCandidate{{Model: "safe", Effort: "low"}}, fallback, 0.5)
+	got, ok := routeDecision(context.Background(), fixtureClient(server), "https://router.test/redirect", "secret", "router", "hello", []routingCandidate{{Model: "safe", Effort: "low"}}, fallback, 0.5)
 	if ok || got != fallback || called {
 		t.Fatalf("redirect should not be followed: %#v %v called=%v", got, ok, called)
 	}
+}
+
+type routingFixtureTransport struct {
+	target string
+	base   http.RoundTripper
+}
+
+func (t routingFixtureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	copyReq := req.Clone(req.Context())
+	copyURL := *req.URL
+	local, _ := url.Parse(t.target)
+	copyURL.Scheme, copyURL.Host = local.Scheme, local.Host
+	copyReq.URL = &copyURL
+	return t.base.RoundTrip(copyReq)
+}
+func fixtureClient(server *httptest.Server) *http.Client {
+	return &http.Client{Transport: routingFixtureTransport{target: server.URL, base: http.DefaultTransport}, CheckRedirect: routingHTTPClient.CheckRedirect}
 }
