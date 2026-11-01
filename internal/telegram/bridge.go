@@ -1181,7 +1181,7 @@ func (b *Bridge) queueAnswer(ctx context.Context, input agentruntime.QueuedInput
 			uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			// Reserve a minute before the bucket's earliest lifecycle deletion.
-			expiresAt := time.Now().UTC().Add(24*time.Hour - time.Minute)
+			expiresAt := time.Now().UTC().Add(config.MaxR2PresignExpiry - time.Minute)
 			locator, err := b.R2.Store(uploadCtx, answer)
 			if err != nil {
 				b.logWarnFields("long response upload failed", logrus.Fields{"chat_id": input.ChatID, "error_category": "r2_upload_failed"})

@@ -67,7 +67,7 @@ func (u *R2Uploader) Presign(ctx context.Context, locator string, expiry time.Du
 	if err != nil || bucket != u.bucket || !strings.HasPrefix(key, "abot/responses/") {
 		return "", errors.New("invalid long-response object locator")
 	}
-	if expiry < time.Second || expiry >= 24*time.Hour {
+	if expiry < time.Second || expiry > config.MaxR2PresignExpiry {
 		return "", errors.New("invalid long-response link expiry")
 	}
 	link, err := u.store.PresignGet(ctx, locator, expiry)

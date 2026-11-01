@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chechiachang/abot/internal/config"
 	"github.com/google/uuid"
 	"google.golang.org/adk/session"
 	"gorm.io/gorm"
@@ -398,7 +399,7 @@ func (s *Store) EnqueueOutbox(ctx context.Context, item Outbox) (Outbox, error) 
 		return Outbox{}, errors.New("outbound chat and payload of 1 byte to 4 MiB are required")
 	}
 	if item.R2ObjectLocator != "" {
-		if len(item.R2ObjectLocator) > 2048 || item.R2URLExpirySeconds < 1 || item.R2URLExpirySeconds >= 86400 || item.R2ObjectExpiresAt.IsZero() || item.R2ObjectExpiresAt.After(time.Now().Add(24*time.Hour)) {
+		if len(item.R2ObjectLocator) > 2048 || item.R2URLExpirySeconds < 1 || item.R2URLExpirySeconds > int64(config.MaxR2PresignExpiry/time.Second) || item.R2ObjectExpiresAt.IsZero() || item.R2ObjectExpiresAt.After(time.Now().Add(config.MaxR2PresignExpiry)) {
 			return Outbox{}, errors.New("invalid R2 outbound object metadata")
 		}
 	} else if item.R2URLExpirySeconds != 0 || !item.R2ObjectExpiresAt.IsZero() {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chechiachang/abot/internal/config"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -233,9 +234,9 @@ func TestLegacyTelegramOutboxMigratesR2Metadata(t *testing.T) {
 		{R2URLExpirySeconds: 60},
 		{R2ObjectExpiresAt: time.Now()},
 		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 0, R2ObjectExpiresAt: time.Now()},
-		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 86400, R2ObjectExpiresAt: time.Now()},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: int64(config.MaxR2PresignExpiry/time.Second) + 1, R2ObjectExpiresAt: time.Now()},
 		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 60},
-		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 60, R2ObjectExpiresAt: time.Now().Add(25 * time.Hour)},
+		{R2ObjectLocator: "bucket/key", R2URLExpirySeconds: 60, R2ObjectExpiresAt: time.Now().Add(config.MaxR2PresignExpiry + time.Hour)},
 	} {
 		item.ChatID, item.Payload = 42, "response"
 		if _, err := store.EnqueueOutbox(context.Background(), item); err == nil {

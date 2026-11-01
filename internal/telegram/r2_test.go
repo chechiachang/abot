@@ -68,10 +68,14 @@ func TestR2RandomKeysLimitsAndSafeErrors(t *testing.T) {
 			t.Errorf("accepted %q", locator)
 		}
 	}
-	for _, expiry := range []time.Duration{0, 24 * time.Hour} {
+	for _, expiry := range []time.Duration{0, config.MaxR2PresignExpiry + time.Second} {
 		if _, err := u.Presign(context.Background(), first, expiry); err == nil {
 			t.Errorf("accepted expiry %v", expiry)
 		}
+	}
+	f.signErr = nil
+	if _, err := u.Presign(context.Background(), first, config.MaxR2PresignExpiry); err != nil {
+		t.Fatalf("rejected maximum R2 presign expiry: %v", err)
 	}
 }
 
@@ -95,12 +99,12 @@ func TestR2SDKUploadAndSignedURL(t *testing.T) {
 	if err := store.Put(context.Background(), "abot-share/abot/responses/test.txt", []byte("plain answer")); err != nil {
 		t.Fatal(err)
 	}
-	link, err := store.PresignGet(context.Background(), "abot-share/abot/responses/test.txt", time.Hour)
+	link, err := store.PresignGet(context.Background(), "abot-share/abot/responses/test.txt", config.MaxR2PresignExpiry)
 	if err != nil {
 		t.Fatal(err)
 	}
 	parsed, _ := url.Parse(link)
-	if parsed.Query().Get("X-Amz-Signature") == "" || parsed.Query().Get("X-Amz-Expires") != "3600" || !strings.Contains(parsed.Query().Get("X-Amz-Credential"), "/auto/s3/aws4_request") {
+	if parsed.Query().Get("X-Amz-Signature") == "" || parsed.Query().Get("X-Amz-Expires") != "604800" || !strings.Contains(parsed.Query().Get("X-Amz-Credential"), "/auto/s3/aws4_request") {
 		t.Fatalf("invalid signed URL %s", link)
 	}
 }
