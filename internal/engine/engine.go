@@ -115,6 +115,7 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	if err != nil {
 		return Result{}, err
 	}
+	selection = recommend(turnCtx, RouterConfig(e.Config.DecisionRouter), prompt, selection, currentPolicy)
 	e.logInfo("agent turn policy selected", logrus.Fields{
 		"chat_id": chatID, "branch_id": branchID, "model": selection.Model,
 		"tool_count": len(selection.Tools), "skill_count": len(selection.Skills), "mcp_connection_count": len(selection.MCP),

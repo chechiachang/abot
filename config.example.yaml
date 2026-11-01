@@ -15,19 +15,10 @@ log:
 logfire:
   endpoint: https://logfire-api.pydantic.dev/v1/traces
 telegram:
+  # R2 inline preference in UTF-16 units; offload always above 3500.
+  response_inline_threshold: 1000
   admin_chat_id: 0
   allowed_user_ids: []
-  # Inline UX preference only; independently, responses over 3500 UTF-16 units are offloaded. Default: 1000.
-  # Telegram text messages have a 4096 UTF-16-unit hard limit.
-  response_inline_threshold: 1000
-  # Private R2 storage for responses that approach Telegram's sendMessage limit.
-  r2_account_id: ""
-  r2_bucket: ""
-  morsel_publish_url: ""
-  r2_endpoint: ""
-  r2_prefix: abot/responses
-  r2_url_expiry: 15m
-  r2_max_bytes: 5242880
   admin_user_ids: []
   default_group_id: 0
   approved_channel_ids: []
@@ -54,6 +45,13 @@ mcp:
       environment: [FIRECRAWL_API_KEY]
       timeout: 45s
       max_retries: 1
+# Private long-response storage; enabled only when both R2 credentials are set.
+r2:
+  endpoint: https://664e4225fa00f97af165b5562ae199a9.r2.cloudflarestorage.com
+  bucket: abot-share
+  region: auto
+  presign_expiry: 1h
+  max_bytes: 5242880
 media:
   max_bytes: 10485760
   max_duration: 5m
@@ -75,3 +73,12 @@ url_reader:
   max_redirects: 5
   browser: ""
   firecrawl_external_transfer: false
+
+# Experimental routing is disabled unless explicitly enabled.
+decision_router:
+  enabled: false
+  # Microsoft decision-1 uses an Azure AI Foundry model-inference endpoint.
+  # This endpoint is not the Azure OpenAI chat-completions endpoint.
+  endpoint: https://your-resource.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview
+  model: Microsoft-decision-1
+  timeout: 2s

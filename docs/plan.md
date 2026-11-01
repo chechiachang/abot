@@ -56,7 +56,7 @@ Detailed tasks: [implementation index](tasks/README.md). Follow the numbered fil
 - [x] Add `/start`, `/help`, `/id`, `/cancel`, and `/reset`.
 - [x] Add `/allow` access requests reviewed through the administrator CLI; policy allowlist limits still apply.
 - [x] Implement polling retries, rate-limit handling, fatal token/competing-poller detection, and startup/shutdown administrator notifications.
-- [x] Implement Telegram HTML rendering and Morsel publication for output above 1,000 characters, without splitting; require Morsel credentials for long output.
+- [x] Implement Telegram HTML rendering and private R2 long-response links with durable re-signing, Unicode-safe thresholds, and legacy Morsel fallback; no splitting.
 - [x] Render throttled model/tool activity and structured progress; retain completed tool progress beside the final answer. Include an authorized, run-bound inline emergency Stop callback for immediate active-turn/tool cancellation.
 - [x] Add durable response outbox and restart recovery for persisted outbox entries. Track at-least-once delivery; do not automatically replay interrupted side-effecting tools. Accept unrecoverable pre-turn and result-to-outbox crash gaps for now; inbox recovery and atomic result handoff are deferred.
 - [x] Map replies to earlier completed answers to durable branch checkpoints and fork the conversation.
@@ -94,3 +94,7 @@ Detailed tasks: [implementation index](tasks/README.md). Follow the numbered fil
 - [x] Package Docker Compose deployment with persistent session state and coding workdir, non-root runtime, readiness health check, and cached builds; no web UI service.
 - [x] Add container publication and versioned Go releases; deployment target remains unconfigured.
 - [ ] Verify end-to-end Telegram coding, permissions, cancellation, forks, restart recovery, media delivery, and selected integrations before release.
+
+## Opt-in decision-model routing experiment
+
+The optional `decision_router` configuration is disabled by default. When enabled, each turn sends a bounded prompt excerpt and the policy-approved model/effort candidates to the configured endpoint; only an exact candidate response is accepted. The existing policy selection is the deterministic fallback on timeout, HTTP/JSON failure, or an unlisted answer. Tools, chat authorization, and the rest of the effective policy are unchanged. Configure endpoint credentials with `ABOT_DECISION_ROUTER_API_KEY`; do not place keys in YAML. The Microsoft decision-1 model is exposed through Azure AI Foundry's model-inference chat-completions endpoint, not the Azure OpenAI `/openai/v1/chat/completions` adapter used for generation. Endpoint/API version availability and entitlement must be confirmed in the target Foundry resource before enabling. The example remains disabled pending live validation.
