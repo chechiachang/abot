@@ -116,17 +116,39 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 	if err != nil {
 		return Result{}, err
 	}
+	selectionProgress := workflow.Selection{
+		Model: selection.Model, Effort: selection.ThinkingLevel,
+		PreviousModel: selection.Model, PreviousEffort: selection.ThinkingLevel,
+		SystemOne: "disabled", MinConfidence: e.Config.SystemOne.MinConfidence,
+	}
 	if e.Config.SystemOne.Enabled {
 		choice, selected := e.routeSelection(turnCtx, prompt, currentPolicy, selection)
 		selection.Model, selection.ThinkingLevel = choice.Model, choice.Effort
+		selectionProgress.Model, selectionProgress.Effort = choice.Model, choice.Effort
+		selectionProgress.Confidence, selectionProgress.CandidateCount = choice.Confidence, choice.CandidateCount
+		selectionProgress.HTTPStatus, selectionProgress.FallbackReason = choice.HTTPStatus, choice.FallbackReason
+		fields := logrus.Fields{"chat_id": chatID, "branch_id": branchID, "model": choice.Model, "effort": choice.Effort, "min_confidence": e.Config.SystemOne.MinConfidence, "candidate_count": choice.CandidateCount}
+		if choice.Confidence != nil {
+			fields["confidence"] = *choice.Confidence
+		}
 		if selected {
-			e.logInfo("system one route selected", logrus.Fields{"model": choice.Model, "effort": choice.Effort})
+			selectionProgress.SystemOne = "selected"
+			e.logInfo("system one route selected", fields)
 		} else {
-			e.logDebug("system one route fallback", logrus.Fields{"model": choice.Model, "effort": choice.Effort})
+			selectionProgress.SystemOne = "fallback"
+			fields["reason"], fields["http_status"] = choice.FallbackReason, choice.HTTPStatus
+			e.logInfo("system one route fallback", fields)
 		}
 	}
+	if selectionProgress.PreviousModel != selection.Model || selectionProgress.PreviousEffort != selection.ThinkingLevel {
+		e.logInfo("agent turn model selection changed", logrus.Fields{
+			"chat_id": chatID, "branch_id": branchID,
+			"previous_model": selectionProgress.PreviousModel, "previous_effort": selectionProgress.PreviousEffort,
+			"model": selection.Model, "effort": selection.ThinkingLevel,
+		})
+	}
 	e.logInfo("agent turn policy selected", logrus.Fields{
-		"chat_id": chatID, "branch_id": branchID, "model": selection.Model,
+		"chat_id": chatID, "branch_id": branchID, "model": selection.Model, "effort": selection.ThinkingLevel,
 		"tool_count": len(selection.Tools), "skill_count": len(selection.Skills), "mcp_connection_count": len(selection.MCP),
 	})
 	instruction, err := instructions.Load(e.Config.Instructions.SystemFile, e.Config.Instructions.SoulFile)
@@ -154,6 +176,9 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		return Result{}, fmt.Errorf("create request ID: %w", err)
 	}
 	ids := workflow.IDs{RequestID: requestID, ChatID: chatID}
+	if onEvent != nil {
+		onEvent(workflow.Event{IDs: ids, Kind: workflow.EventSelection, Agent: "coordinator", Selection: &selectionProgress})
+	}
 	branch, err := e.State.EnsureBranch(turnCtx, chatID, branchID)
 	if err != nil {
 		return Result{}, err
@@ -392,10 +417,11 @@ func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Pol
 				candidates = append(candidates, candidate)
 			}
 		}
-		// The unset fallback is valid for every model; nonempty efforts must
-		// be explicitly declared and supported by the Azure adapter.
-		appendCandidate("")
-		for _, effort := range p.ModelThinkingLevels[model] {
+		efforts := p.ThinkingLevels(model)
+		if len(efforts) == 0 {
+			appendCandidate("")
+		}
+		for _, effort := range efforts {
 			if supportedAzureReasoningEffort(effort) {
 				appendCandidate(effort)
 			}
@@ -409,7 +435,7 @@ func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Pol
 
 func supportedAzureReasoningEffort(effort string) bool {
 	switch effort {
-	case "", "none", "low", "medium", "high":
+	case "", "none", "low", "medium", "high", "xhigh":
 		return true
 	default:
 		return false

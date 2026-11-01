@@ -46,6 +46,10 @@ For a container deployment, configure `.env` and `config.yaml`, then start with 
 
 Use `go run ./cmd/abot --help` to explore commands. The checked-in [`config.example.yaml`](config.example.yaml), [`.env.example`](.env.example), and [`SYSTEM.md`](SYSTEM.md) document the available configuration and assistant instructions. Keep credentials in environment variables or a protected secrets store—never commit them.
 
+Optional System One routing accepts a full `/providers/microsoft/v1/systemone` URL or a base URL in `ABOT_SYSTEM_ONE_ENDPOINT`; enable it with `system_one.enabled`, set `system_one.model` to your deployment name, and set `ABOT_SYSTEM_ONE_API_KEY`.
+List Azure deployment names in `capabilities.global.models`; `azure.model` remains the default. Routing uses only configured thinking levels (for example, `[medium, xhigh]`) unless overridden per model and needs at least two model/effort pairs. Unset effort is used only when no levels are configured; the fallback is separate.
+Reasoning with function tools uses Azure's Responses API; other requests retain Chat Completions. Responses use `store: false` and persist encrypted reasoning locally for tool follow-ups.
+
 ## Development
 
 ```sh

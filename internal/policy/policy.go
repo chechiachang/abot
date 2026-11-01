@@ -263,11 +263,21 @@ func (p Policy) validateThinking(model, level string) error {
 	if !slices.Contains(p.Global.ThinkingLevels, level) {
 		return fmt.Errorf("thinking level %q is not in global.thinking_levels", level)
 	}
-	supported, ok := p.ModelThinkingLevels[model]
-	if !ok || !slices.Contains(supported, level) {
+	if !slices.Contains(p.ThinkingLevels(model), level) {
 		return fmt.Errorf("thinking level %q is not declared for model %q", level, model)
 	}
 	return nil
+}
+
+// Per-model declarations override shared levels, including empty declarations.
+func (p Policy) ThinkingLevels(model string) []string {
+	if !slices.Contains(p.Global.Models, model) {
+		return nil
+	}
+	if levels, ok := p.ModelThinkingLevels[model]; ok {
+		return intersect(levels, p.Global.ThinkingLevels)
+	}
+	return p.Global.ThinkingLevels
 }
 
 func positiveUnique(name string, values []int64) error {

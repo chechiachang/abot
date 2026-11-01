@@ -64,7 +64,8 @@ func TestLoadRejectsR2CredentialsInConfig(t *testing.T) {
 }
 
 func TestR2OptionalExampleAndValidation(t *testing.T) {
-	t.Setenv("ABOT_AZURE_MODEL", "test-model")
+	t.Setenv("ABOT_SYSTEM_ONE_ENABLED", "false")
+	t.Setenv("ABOT_AZURE_MODEL", "gpt-6-luna")
 	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
 	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	v := NewViper()

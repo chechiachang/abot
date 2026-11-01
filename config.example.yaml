@@ -1,13 +1,13 @@
-# Optional System One decision-1 model/effort selector; disabled by default.
+# Optional System One selector; model is the Azure deployment name.
 # Supply credentials only through ABOT_SYSTEM_ONE_API_KEY.
 system_one:
-  enabled: false
-  endpoint: https://router.example
+  enabled: true
+  endpoint: https://myopenai.openai.azure.com/providers/microsoft/v1/systemone
   model: decision-1
-  min_confidence: 0.8
+  min_confidence: 0.6
 azure:
   base_url: https://myopenai.openai.azure.com/openai/v1
-  model: my-deployment
+  model: gpt-6-luna
   max_retries: 2
   timeout: 90s
 coding:
@@ -31,9 +31,11 @@ telegram:
   approved_channel_ids: []
 capabilities:
   global:
+    # Azure deployment names; include azure.model as the fallback.
+    models: [gpt-6-luna, gpt-6.1-sol]
     tools: [read, bash, edit, write, read_url_content, read_quotes]
     mcp: [chrome-devtools, firecrawl]
-    thinking_levels: [none, low, medium, high]
+    thinking_levels: [medium, xhigh]
   defaults:
     tools: [read, bash, edit, write, read_url_content, read_quotes]
     mcp: []

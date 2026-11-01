@@ -374,9 +374,9 @@ func (c Config) Validate() error {
 		return invalid("azure.max_retries", "must be between 0 and 5")
 	}
 	switch c.Azure.ReasoningEffort {
-	case "", "none", "low", "medium", "high":
+	case "", "none", "low", "medium", "high", "xhigh":
 	default:
-		return invalid("azure.reasoning_effort", "must be none, low, medium, or high")
+		return invalid("azure.reasoning_effort", "must be none, low, medium, high, or xhigh")
 	}
 	if c.Coding.CommandTimeout <= 0 || c.Coding.MaxOutputBytes <= 0 || c.Coding.MaxOutputBytes > 10<<20 {
 		return invalid("coding", "command timeout and output limit must be positive; output is capped at 10 MiB")
@@ -534,12 +534,6 @@ func (c Config) EffectivePolicy() policy.Policy {
 	if c.Azure.ReasoningEffort != "" {
 		if len(p.Global.ThinkingLevels) == 0 {
 			p.Global.ThinkingLevels = []string{c.Azure.ReasoningEffort}
-		}
-		if p.ModelThinkingLevels == nil {
-			p.ModelThinkingLevels = make(map[string][]string)
-		}
-		if len(p.ModelThinkingLevels[c.Azure.Model]) == 0 {
-			p.ModelThinkingLevels[c.Azure.Model] = []string{c.Azure.ReasoningEffort}
 		}
 	}
 	return p

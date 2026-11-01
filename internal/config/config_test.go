@@ -134,6 +134,22 @@ mcp:
 	}
 }
 
+func TestEffectivePolicyKeepsSharedEffortsWithAzureDefault(t *testing.T) {
+	cfg := Config{
+		Azure: AzureConfig{Model: "model-a", ReasoningEffort: "low"},
+		Capabilities: policy.ConfiguredCapabilities{
+			Global: policy.Capabilities{Models: []string{"model-a", "model-b"}, ThinkingLevels: []string{"low", "high"}},
+		},
+	}
+	p := cfg.EffectivePolicy()
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if p.Defaults.Model != "model-a" || p.Defaults.ThinkingLevel != "low" || len(p.ThinkingLevels("model-a")) != 2 || len(p.ThinkingLevels("model-b")) != 2 {
+		t.Fatalf("Azure default must not narrow shared model/effort choices: %#v", p)
+	}
+}
+
 func TestValidateMCPRejectsUnconfiguredPolicyAndEmbeddedEndpointCredentials(t *testing.T) {
 	base := Config{Azure: AzureConfig{Model: "model"}, Capabilities: policy.ConfiguredCapabilities{
 		Global:   policy.Capabilities{Models: []string{"model"}, MCP: []string{"missing"}},

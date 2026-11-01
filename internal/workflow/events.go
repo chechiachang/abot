@@ -10,8 +10,9 @@ import (
 type EventKind string
 
 const (
-	EventProgress EventKind = "progress"
-	EventResult   EventKind = "result"
+	EventProgress  EventKind = "progress"
+	EventResult    EventKind = "result"
+	EventSelection EventKind = "selection"
 )
 
 type IDs struct {
@@ -27,6 +28,18 @@ type Event struct {
 	ToolState string
 	Text      string
 	Partial   bool
+	Selection *Selection
+}
+
+// Selection is host-owned routing metadata, not generated model text.
+type Selection struct {
+	Model, Effort                 string
+	PreviousModel, PreviousEffort string
+	SystemOne                     string
+	Confidence                    *float64
+	MinConfidence                 float64
+	CandidateCount, HTTPStatus    int
+	FallbackReason                string
 }
 
 func NewRequestID() (string, error) {
