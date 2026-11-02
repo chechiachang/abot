@@ -58,7 +58,7 @@ class ProtocolTest(unittest.TestCase):
         result = self.rpc("/mcp", "initialize", {"protocolVersion": "2025-06-18"})
         self.assertEqual(result["result"]["protocolVersion"], "2025-06-18")
         self.assertEqual(self.request("/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}), (202, None))
-        self.assertEqual(len(self.rpc("/mcp", "tools/list", {})["result"]["tools"]), 3)
+        self.assertEqual(len(self.rpc("/mcp", "tools/list", {})["result"]["tools"]), 6)
         result = self.rpc("/mcp", "tools/call", {"name": "calculate", "arguments": {"expression": "1/0"}})
         self.assertTrue(result["result"]["isError"])
         self.assertEqual(self.rpc("/mcp", "unknown", {})["error"]["code"], -32601)

@@ -61,3 +61,13 @@ codex -m gpt-6-luna \
 Alternatively, merge [the provider example](examples/codex-config.toml) into `~/.codex/config.toml`, then run `codex` after login. Provider/auth settings are not loaded from project config; `--config` accepts key/value overrides, not a file path.
 
 Dev-only. Restarting Vault resets sessions; inference uses Azure quota. [Security](SECURITY.md).
+
+### Specialist agents
+
+The same Python stdlib service provides three deterministic, no-credential A2A agents at `/agents/research`, `/agents/data-analyst`, and `/agents/issue-triage`; each card is published at `/agents/<name>/.well-known/agent-card.json`. The routes inherit the gateway's strict Vault JWT requirement. Merge the updated routes from `config/agentgateway.yaml.example` into an existing local gateway config; `make setup` will not overwrite it. Build/restart with `docker compose up -d --build`, then use the A2A `message/send` JSON-RPC interface or existing MCP tools.
+
+- **Research** accepts one HTTPS URL. It only permits `www.iana.org`, `www.rfc-editor.org`, and `www.python.org`, uses port 443, checks every resolved address is globally routable, times out after 3 seconds, accepts only text/plain or text/html, caps responses at 64 KiB, and does not follow redirects. Output text is capped at 16 KiB. This is a small public-source fetcher, not a crawler.
+- **Data analyst** accepts CSV or JSON (JSON array of objects) through `data_summary`; max 64 KiB input, 1,000 rows, 50 columns, and 4 KiB per field. Reports missing/distinct counts, numeric min/max/mean/median, or top categorical values. A2A message text is JSON: `{"format":"csv","data":"value\\n1\\n2\\n"}` (JSON format accepts `data` as an array or encoded JSON string).
+- **Issue triage** picks only `platform`, `security`, `documentation`, or `product`, and returns a keyword-based rationale and heuristic confidence. It is a suggestion only: it cannot authorize, assign, or perform actions.
+
+All three are covered by offline unit tests and need no model credentials. Run `python3 -B -m unittest discover -s tests -v`; after login, `python3 scripts/check-examples.py` also exercises their gateway cards/routes (the research request is intentionally not made against live internet).

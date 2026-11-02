@@ -53,9 +53,15 @@ for path, body in [
     ("/agents/calculator/.well-known/agent-card.json", None),
     ("/agents/text-analyst/.well-known/agent-card.json", None),
     ("/agents/text-transformer/.well-known/agent-card.json", None),
+    ("/agents/research/.well-known/agent-card.json", None),
+    ("/agents/data-analyst/.well-known/agent-card.json", None),
+    ("/agents/issue-triage/.well-known/agent-card.json", None),
     ("/agents/calculator", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
     ("/agents/text-analyst", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
     ("/agents/text-transformer", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
+    ("/agents/research", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
+    ("/agents/data-analyst", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
+    ("/agents/issue-triage", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
 ]:
     try:
         request(path, body, authenticated=False)
@@ -84,6 +90,8 @@ for name, text, expected in [
     ("calculator", "(12 + 8) * 3", {"value": 60}),
     ("text-analyst", "Hello from agentgateway", {"characters": 23, "words": 3, "lines": 1}),
     ("text-transformer", "agentgateway", {"text": "yawetagtnega"}),
+    ("data-analyst", json.dumps({"format": "csv", "data": "n\n1\n3\n"}), {"rows": 2}),
+    ("issue-triage", "Deployment gateway crash", {"team": "platform"}),
 ]:
     path = "/agents/" + name
     card = request(path + "/.well-known/agent-card.json")
@@ -92,5 +100,12 @@ for name, text, expected in [
         "kind": "message", "role": "user", "messageId": str(uuid4()),
         "parts": [{"kind": "text", "text": text}],
     }})
-    assert result["role"] == "agent" and json.loads(result["parts"][0]["text"]) == expected, result
+    parsed_result = json.loads(result["parts"][0]["text"])
+    if name == "data-analyst":
+        assert parsed_result["rows"] == expected["rows"], parsed_result
+    elif name == "issue-triage":
+        assert parsed_result["team"] == expected["team"] and parsed_result["heuristic"], parsed_result
+    else:
+        assert parsed_result == expected, result
+    assert result["role"] == "agent", result
     print(f"PASS A2A {name}")

@@ -116,3 +116,34 @@ routes:
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
+
+  - name: research-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/research
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080
+  - name: data-analyst-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/data-analyst
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080
+  - name: issue-triage-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/issue-triage
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080
