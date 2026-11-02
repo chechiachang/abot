@@ -1,5 +1,7 @@
 services:
   vault:
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     image: hashicorp/vault:2.2.1
     command: server -dev -dev-listen-address=0.0.0.0:8200 -config=/vault/config/demo.hcl
     environment:
@@ -23,6 +25,8 @@ services:
       retries: 30
 
   dex:
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     image: ghcr.io/dexidp/dex:v2.46.1
     command: ["dex", "serve", "/etc/dex/config.yaml"]
     # Vault and the browser must resolve the same localhost OIDC issuer.
@@ -45,12 +49,16 @@ services:
         condition: service_healthy
 
   vault-init:
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     image: hashicorp/vault:2.2.1
     entrypoint: ["/bin/sh", "/demo/vault-init.sh"]
-    env_file: .env
     environment:
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID}
+      GITHUB_ORG: ${GITHUB_ORG}
+      GITHUB_USER: ${GITHUB_USER}
+      DEX_VAULT_CLIENT_SECRET: ${DEX_VAULT_CLIENT_SECRET}
     volumes:
       - ./scripts/vault-init.sh:/demo/vault-init.sh:ro
       - ./config/vault-agentgateway-policy.hcl:/demo/vault-agentgateway-policy.hcl:ro
@@ -61,6 +69,8 @@ services:
         condition: service_started
 
   agentgateway:
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     image: cr.agentgateway.dev/agentgateway:v1.7.0
     command: ["-f", "/config/config.yaml"]
     environment:
@@ -69,7 +79,7 @@ services:
       GITHUB_USER: ${GITHUB_USER}
       DEX_AGENTGATEWAY_CLIENT_SECRET: ${DEX_AGENTGATEWAY_CLIENT_SECRET}
       AGENTGATEWAY_SESSION_KEY: ${AGENTGATEWAY_SESSION_KEY:?Set a 64-character hex session key in .env}
-      OIDC_COOKIE_SECRET: ${AGENTGATEWAY_SESSION_KEY}
+      OIDC_COOKIE_SECRET: ${OIDC_COOKIE_SECRET:?Run make setup}
     ports:
       - "127.0.0.1:4000:4000"
     volumes:

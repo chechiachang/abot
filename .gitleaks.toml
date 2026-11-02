@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+# Published demo key in the initial commit; make setup rotates this value.
+# Other secrets in .env.example are still scanned.
+[[allowlists]]
+description = "Historical public demo session key only"
+regexTarget = "secret"
+regexes = ['^0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef$']
