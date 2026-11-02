@@ -71,3 +71,37 @@ llm:
       params:
         model: decision-1
         baseUrl: "$AZURE_OPENAI_BASE_URL"
+
+mcp:
+  gateways: [default]
+  prefixMode: always
+  policies:
+    jwtAuth: *vault-jwt
+  targets:
+    - name: playground
+      mcp:
+        host: demo-tools-agents
+        port: 8080
+        path: /mcp
+
+routes:
+  - name: calculator-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/calculator
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080
+  - name: text-analyst-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/text-analyst
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080

@@ -35,6 +35,18 @@ sh scripts/check-models.sh                         # chat, embeddings, and Syste
 sh scripts/check-models.sh systemone-request.json  # optional custom request
 ```
 
+## Tools, MCP, and agents
+
+MCP at `http://localhost:4000/mcp` exposes `playground_calculate` (arithmetic) and `playground_text_stats` (counts). A2A agents at `/agents/calculator` and `/agents/text-analyst` accept text via `message/send`; cards are at each agent's `/.well-known/agent-card.json`. All require `Authorization: Bearer $JWT`. These deterministic examples use no model quota.
+
+Existing setups: merge the `mcp` and `routes` sections from [the gateway template](config/agentgateway.yaml.example) into `config/agentgateway.yaml`. `make setup` preserves existing configs.
+
+```sh
+docker compose up -d --build
+eval "$(make login)"
+python3 scripts/check-examples.py  # auth, MCP discovery/calls, both agents
+```
+
 ## Codex
 
 Launch without changing global config:
