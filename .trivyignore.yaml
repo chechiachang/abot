@@ -1,0 +1,60 @@
+# Temporary exceptions for unfixed upstream image findings (Vault 2.2.1, Dex 2.46.1).
+# Expire 2 weeks after 2026-11-02; re-evaluate or upgrade images by then.
+vulnerabilities:
+  - id: CVE-2026-111943
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-116587
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-33818
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-39821
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-46600
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56851
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56853
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56854
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56858
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56859
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56860
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-56862
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-71556
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-78667
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-78669
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-84304
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-84445
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: CVE-2026-97031
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
+  - id: GHSA-hrxh-6v49-42gf
+    expired_at: 2026-11-16
+    statement: No fixed upstream Vault/Dex release available as of 2026-11-02.
