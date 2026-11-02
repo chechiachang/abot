@@ -1,0 +1,6 @@
+ui = true
+disable_mlock = true
+
+# Vault appends /v1/identity/oidc to this address to form the JWT issuer.
+# Keep it in sync with issuer in agentgateway.yaml (not the internal JWKS URL).
+api_addr = "http://localhost:8200"
