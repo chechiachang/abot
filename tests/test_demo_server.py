@@ -24,6 +24,7 @@ class ToolsTest(unittest.TestCase):
     def test_text_and_argument_validation(self):
         self.assertEqual(demo.text_stats("one two\nthree"), {"characters": 13, "words": 3, "lines": 2})
         self.assertEqual(demo.text_stats(""), {"characters": 0, "words": 0, "lines": 0})
+        self.assertEqual(demo.reverse_text("héllo 🌍"), {"text": "🌍 olléh"})
         for name, arguments in (("unknown", {}), ("calculate", {}), ("text_stats", {"text": 12}),
                                 ("text_stats", {"text": "x" * 10001}), ("calculate", {"expression": "1", "extra": 2})):
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -57,7 +58,7 @@ class ProtocolTest(unittest.TestCase):
         result = self.rpc("/mcp", "initialize", {"protocolVersion": "2025-06-18"})
         self.assertEqual(result["result"]["protocolVersion"], "2025-06-18")
         self.assertEqual(self.request("/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}), (202, None))
-        self.assertEqual(len(self.rpc("/mcp", "tools/list", {})["result"]["tools"]), 2)
+        self.assertEqual(len(self.rpc("/mcp", "tools/list", {})["result"]["tools"]), 3)
         result = self.rpc("/mcp", "tools/call", {"name": "calculate", "arguments": {"expression": "1/0"}})
         self.assertTrue(result["result"]["isError"])
         self.assertEqual(self.rpc("/mcp", "unknown", {})["error"]["code"], -32601)
@@ -65,7 +66,8 @@ class ProtocolTest(unittest.TestCase):
 
     def test_agent_discovery_and_messages(self):
         for name, text, expected in (("calculator", "6 * 7", {"value": 42}),
-                                     ("text-analyst", "one two", {"characters": 7, "words": 2, "lines": 1})):
+                                     ("text-analyst", "one two", {"characters": 7, "words": 2, "lines": 1}),
+                                     ("text-transformer", "héllo 🌍", {"text": "🌍 olléh"})):
             path = "/agents/" + name
             card = self.request(path + "/.well-known/agent-card.json")[1]
             self.assertEqual(card["url"], demo.BASE_URL + path)

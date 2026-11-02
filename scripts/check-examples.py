@@ -52,8 +52,10 @@ for path, body in [
     ("/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}),
     ("/agents/calculator/.well-known/agent-card.json", None),
     ("/agents/text-analyst/.well-known/agent-card.json", None),
+    ("/agents/text-transformer/.well-known/agent-card.json", None),
     ("/agents/calculator", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
     ("/agents/text-analyst", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
+    ("/agents/text-transformer", {"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {}}),
 ]:
     try:
         request(path, body, authenticated=False)
@@ -70,6 +72,7 @@ tools = rpc("/mcp", "tools/list", {})["tools"]
 for suffix, arguments, expected in [
     ("calculate", {"expression": "(12 + 8) * 3"}, {"value": 60}),
     ("text_stats", {"text": "Hello from agentgateway"}, {"characters": 23, "words": 3, "lines": 1}),
+    ("reverse_text", {"text": "agentgateway"}, {"text": "yawetagtnega"}),
 ]:
     name = next(tool["name"] for tool in tools if tool["name"].endswith(suffix))
     result = rpc("/mcp", "tools/call", {"name": name, "arguments": arguments})
@@ -80,6 +83,7 @@ for suffix, arguments, expected in [
 for name, text, expected in [
     ("calculator", "(12 + 8) * 3", {"value": 60}),
     ("text-analyst", "Hello from agentgateway", {"characters": 23, "words": 3, "lines": 1}),
+    ("text-transformer", "agentgateway", {"text": "yawetagtnega"}),
 ]:
     path = "/agents/" + name
     card = request(path + "/.well-known/agent-card.json")

@@ -18,12 +18,17 @@ TOOLS = [
     {"name": "text_stats", "description": "Count characters, words, and lines in text.",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string", "maxLength": 10000}},
                      "required": ["text"], "additionalProperties": False}},
+    {"name": "reverse_text", "description": "Reverse text by Unicode code point.",
+     "inputSchema": {"type": "object", "properties": {"text": {"type": "string", "maxLength": 10000}},
+                     "required": ["text"], "additionalProperties": False}},
 ]
 AGENTS = {
     "calculator": {"name": "Calculator", "description": "Evaluates arithmetic without an LLM.",
                    "examples": ["(12 + 8) * 3"], "tags": ["math", "tools"]},
     "text-analyst": {"name": "Text analyst", "description": "Counts text characters, words, and lines without an LLM.",
                      "examples": ["Hello from agentgateway"], "tags": ["text", "tools"]},
+    "text-transformer": {"name": "Text transformer", "description": "Reverses text by Unicode code point without an LLM.",
+                          "examples": ["agentgateway"], "tags": ["text", "transform"]},
 }
 
 
@@ -53,6 +58,12 @@ def text_stats(text):
     return {"characters": len(text), "words": len(text.split()), "lines": len(text.splitlines())}
 
 
+def reverse_text(text):
+    if not isinstance(text, str) or len(text) > 10000:
+        raise ValueError("text must be a string of at most 10000 characters")
+    return {"text": text[::-1]}
+
+
 def call_tool(name, arguments):
     if not isinstance(arguments, dict):
         raise ValueError("arguments must be an object")
@@ -60,6 +71,8 @@ def call_tool(name, arguments):
         return calculate(arguments["expression"])
     if name == "text_stats" and set(arguments) == {"text"}:
         return text_stats(arguments["text"])
+    if name == "reverse_text" and set(arguments) == {"text"}:
+        return reverse_text(arguments["text"])
     raise ValueError("Unknown tool or invalid arguments")
 
 
@@ -175,7 +188,7 @@ class Handler(BaseHTTPRequestHandler):
         ):
             raise ValueError("message.parts must contain text parts")
         text = "\n".join(part["text"] for part in parts)
-        value = calculate(text) if agent == "calculator" else text_stats(text)
+        value = {"calculator": calculate, "text-analyst": text_stats, "text-transformer": reverse_text}[agent](text)
         return {"kind": "message", "role": "agent", "messageId": str(uuid4()),
                 "parts": [{"kind": "text", "text": json.dumps(value)}]}
 

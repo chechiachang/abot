@@ -105,3 +105,14 @@ routes:
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
+
+  - name: text-transformer-agent
+    gateways: [default]
+    matches:
+      - path:
+          pathPrefix: /agents/text-transformer
+    policies:
+      jwtAuth: *vault-jwt
+      a2a: {}
+    backends:
+      - host: demo-tools-agents:8080
