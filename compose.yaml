@@ -1,0 +1,84 @@
+services:
+  vault:
+    image: hashicorp/vault:2.2.1
+    command: server -dev -dev-listen-address=0.0.0.0:8200 -config=/vault/config/demo.hcl
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env}
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "127.0.0.1:8200:8200"
+      - "127.0.0.1:5556:5556"
+      - "127.0.0.1:8250:8250"
+    volumes:
+      - type: bind
+        source: ./config/vault.hcl
+        target: /vault/config/demo.hcl
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.46.1
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    # Vault and the browser must resolve the same localhost OIDC issuer.
+    network_mode: service:vault
+    environment:
+      GITHUB_ORG: ${GITHUB_ORG}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:?Set GitHub OAuth App client ID in .env}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:?Set GitHub OAuth App client secret in .env}
+      DEX_VAULT_CLIENT_SECRET: ${DEX_VAULT_CLIENT_SECRET:?Set DEX_VAULT_CLIENT_SECRET in .env}
+      DEX_AGENTGATEWAY_CLIENT_SECRET: ${DEX_AGENTGATEWAY_CLIENT_SECRET:?Set DEX_AGENTGATEWAY_CLIENT_SECRET in .env}
+    volumes:
+      - type: bind
+        source: ./config/dex.yaml
+        target: /etc/dex/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      vault:
+        condition: service_healthy
+
+  vault-init:
+    image: hashicorp/vault:2.2.1
+    entrypoint: ["/bin/sh", "/demo/vault-init.sh"]
+    env_file: .env
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID}
+    volumes:
+      - ./scripts/vault-init.sh:/demo/vault-init.sh:ro
+      - ./config/vault-agentgateway-policy.hcl:/demo/vault-agentgateway-policy.hcl:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+      dex:
+        condition: service_started
+
+  agentgateway:
+    image: cr.agentgateway.dev/agentgateway:v1.7.0
+    command: ["-f", "/config/config.yaml"]
+    environment:
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:?Set AZURE_OPENAI_BASE_URL in .env}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      GITHUB_USER: ${GITHUB_USER}
+      DEX_AGENTGATEWAY_CLIENT_SECRET: ${DEX_AGENTGATEWAY_CLIENT_SECRET}
+      AGENTGATEWAY_SESSION_KEY: ${AGENTGATEWAY_SESSION_KEY:?Set a 64-character hex session key in .env}
+      OIDC_COOKIE_SECRET: ${AGENTGATEWAY_SESSION_KEY}
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - type: bind
+        source: ./config/agentgateway.yaml
+        target: /config/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully

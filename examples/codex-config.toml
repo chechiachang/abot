@@ -1,0 +1,11 @@
+# Merge into ~/.codex/config.toml; provider settings are user-level.
+# Authenticate in the same shell first: eval "$(make login)"
+model_provider = "agw"
+model = "gpt-6-luna"
+
+[model_providers.agw]
+name = "Local Agentgateway"
+base_url = "http://localhost:4000/v1"
+env_key = "JWT"
+wire_api = "responses"
+requires_openai_auth = false

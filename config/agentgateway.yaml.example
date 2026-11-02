@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.7.0/schema/config.json
+config:
+  adminAddr: "off"
+  session:
+    key: "$AGENTGATEWAY_SESSION_KEY"
+
+gateways:
+  default:
+    port: 4000
+
+ui:
+  gateways: [default]
+  policies:
+    oidc:
+      issuer: http://localhost:5556/dex
+      authorizationEndpoint: http://localhost:5556/dex/auth
+      tokenEndpoint: http://vault:5556/dex/token
+      jwks:
+        url: http://vault:5556/dex/keys
+      clientId: agentgateway-ui
+      clientSecret: "$DEX_AGENTGATEWAY_CLIENT_SECRET"
+      redirectURI: http://localhost:4000/oauth/callback
+      scopes: [profile, email]
+      credentials: session
+    authorization:
+      rules:
+        - allow: 'jwt.preferred_username == "$GITHUB_USER"'
+
+llm:
+  gateways: [default]
+  policies:
+    jwtAuth: &vault-jwt
+      mode: strict
+      issuer: http://localhost:8200/v1/identity/oidc
+      audiences: [agentgateway]
+      jwks:
+        url: http://vault:8200/v1/identity/oidc/.well-known/keys
+      jwtValidationOptions:
+        requiredClaims: [exp, iss, aud, sub]
+  models:
+    - name: gpt-6-luna
+      provider: openAI
+      auth: &azure-auth
+        key:
+          value: "$AZURE_OPENAI_API_KEY"
+          location:
+            header:
+              name: api-key
+      params:
+        model: gpt-6-luna
+        baseUrl: "$AZURE_OPENAI_BASE_URL/openai/v1"
+    - name: gpt-6.1-sol
+      provider: openAI
+      auth: *azure-auth
+      params:
+        model: gpt-6.1-sol
+        baseUrl: "$AZURE_OPENAI_BASE_URL/openai/v1"
+    - name: text-embedding-3-large
+      provider: openAI
+      auth: *azure-auth
+      params:
+        model: text-embedding-3-large
+        baseUrl: "$AZURE_OPENAI_BASE_URL/openai/v1"
+    - name: decision-1
+      provider:
+        custom:
+          formats:
+            - type: systemOne
+              path: /providers/microsoft/v1/systemone
+      auth: *azure-auth
+      params:
+        model: decision-1
+        baseUrl: "$AZURE_OPENAI_BASE_URL"
