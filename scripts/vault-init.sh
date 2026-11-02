@@ -9,6 +9,12 @@ if [ "$GITHUB_ORG" = your-github-org ] || [ "$GITHUB_USER" = your-github-usernam
   exit 1
 fi
 
+for name in "$GITHUB_ORG" "$GITHUB_USER"; do
+  case "$name" in
+    *[!A-Za-z0-9-]*) echo 'GitHub org/user must contain only letters, digits and hyphens.' >&2; exit 1 ;;
+  esac
+done
+
 vault policy write agentgateway /demo/vault-agentgateway-policy.hcl
 
 # Safe to rerun while the dev Vault is still running.

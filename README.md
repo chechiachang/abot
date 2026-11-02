@@ -3,10 +3,7 @@
 ## Setup
 
 ```sh
-cp .env.example .env
-for name in agentgateway.yaml dex.yaml vault.hcl; do
-  cp "config/$name.example" "config/$name"
-done
+make setup  # Python 3; generates secrets and copies missing configs
 ```
 
 Set GitHub org/user, OAuth client credentials, and Azure API key in `.env`. [GitHub OAuth App](https://github.com/settings/developers) callback: `http://localhost:5556/dex/callback`; grant organization access.
@@ -51,4 +48,4 @@ codex -m gpt-6-luna \
 
 Alternatively, merge [the provider example](examples/codex-config.toml) into `~/.codex/config.toml`, then run `codex` after login. Provider/auth settings are not loaded from project config; `--config` accepts key/value overrides, not a file path.
 
-Dev-only. Restarting Vault resets sessions; inference uses Azure quota.
+Dev-only. Restarting Vault resets sessions; inference uses Azure quota. [Security](SECURITY.md).
