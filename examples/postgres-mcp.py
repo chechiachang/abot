@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Small read-only PostgreSQL MCP server; stdlib transport, psycopg driver."""
+import json
+import os
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # SQL validation tests can run without the container driver.
+    psycopg = None
+    dict_row = None
+
+MAX_ROWS = 200
+MAX_SQL_CHARS = 8000
+FORBIDDEN = re.compile(r"\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|refresh|comment|set|reset|discard|listen|notify|prepare|execute|deallocate)\b", re.I)
+TOOLS = [
+    {"name": "postgres_list_tables", "description": "List accessible tables in the public schema.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "postgres_describe_table", "description": "Describe columns for a public-schema table.", "inputSchema": {"type": "object", "properties": {"table": {"type": "string", "maxLength": 63}}, "required": ["table"], "additionalProperties": False}},
+    {"name": "postgres_query", "description": "Run one bounded, read-only SELECT query (maximum 200 rows).", "inputSchema": {"type": "object", "properties": {"sql": {"type": "string", "maxLength": MAX_SQL_CHARS}}, "required": ["sql"], "additionalProperties": False}},
+]
+
+
+def readonly_query(sql):
+    """Conservative syntax checks plus PostgreSQL read-only transaction and DB grants."""
+    if not isinstance(sql, str) or len(sql) > MAX_SQL_CHARS:
+        raise ValueError("sql must be a string no longer than 8000 characters")
+    query = sql.strip()
+    if not re.match(r"(?is)^select\b", query) or ";" in query or "--" in query or "/*" in query or "*/" in query or FORBIDDEN.search(query) or re.search(r"(?is)\bpg_[a-z0-9_]+\s*\(", query):
+        raise ValueError("only a single SELECT statement is allowed")
+    if re.search(r"(?is)\b(into|for\s+(update|share|no\s+key\s+update|key\s+share))\b", query):
+        raise ValueError("SELECT INTO and row-locking clauses are not allowed")
+    if re.search(r"(?is)\b(pg_sleep|pg_read_file|pg_read_binary_file|pg_ls_dir|lo_import|lo_export|dblink)\s*\(", query):
+        raise ValueError("unsafe PostgreSQL function is not allowed")
+    return query
+
+
+def call_tool(name, args):
+    if name not in {"postgres_list_tables", "postgres_describe_table", "postgres_query"}:
+        raise ValueError("unknown tool")
+    if psycopg is None:
+        raise RuntimeError("psycopg driver is not installed")
+    with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=5, options="-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=2000", row_factory=dict_row) as conn:
+        with conn.transaction(read_only=True):
+            if name == "postgres_list_tables":
+                rows = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name").fetchall()
+            elif name == "postgres_describe_table":
+                table = args.get("table")
+                if not isinstance(table, str) or len(table) > 63:
+                    raise ValueError("table must be a PostgreSQL identifier")
+                rows = conn.execute("SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position", (table,)).fetchall()
+            elif name == "postgres_query":
+                query = readonly_query(args.get("sql"))
+                rows = conn.execute("SELECT * FROM (" + query + ") AS mcp_read_only_query LIMIT %s", (MAX_ROWS,)).fetchall()
+            else:
+                raise ValueError("unknown tool")
+    return rows
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+    def respond(self, status, value):
+        data = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        self.respond(200, {"ok": True}) if self.path == "/health" else self.respond(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/mcp":
+            self.respond(404, {"error": "not found"})
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if size < 0 or size > 65536:
+                raise ValueError("request too large")
+            request = json.loads(self.rfile.read(size))
+            method, request_id = request.get("method"), request.get("id")
+            if method == "initialize":
+                result = {"protocolVersion": request.get("params", {}).get("protocolVersion", "2025-06-18"), "capabilities": {"tools": {}}, "serverInfo": {"name": "postgres-readonly", "version": "1.0.0"}}
+            elif method == "notifications/initialized":
+                self.send_response(202); self.end_headers(); return
+            elif method == "ping":
+                result = {}
+            elif method == "tools/list":
+                result = {"tools": TOOLS}
+            elif method == "tools/call":
+                params = request.get("params", {})
+                try:
+                    rows = call_tool(params.get("name"), params.get("arguments", {}))
+                    result = {"content": [{"type": "text", "text": json.dumps(rows, default=str)}], "isError": False}
+                except Exception as exc:
+                    result = {"content": [{"type": "text", "text": str(exc)}], "isError": True}
+            else:
+                self.respond(200, {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "method not found"}}); return
+            if request_id is None:
+                self.send_response(202); self.end_headers(); return
+            self.respond(200, {"jsonrpc": "2.0", "id": request_id, "result": result})
+        except Exception:
+            self.respond(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "invalid request"}})
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer(("0.0.0.0", 8081), Handler).serve_forever()
