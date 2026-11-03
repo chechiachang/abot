@@ -31,10 +31,10 @@ llm:
   policies:
     jwtAuth: &vault-jwt
       mode: strict
-      issuer: http://localhost:8200/v1/identity/oidc
+      issuer: http://localhost:8200/v1/identity/oidc/provider/agentgateway
       audiences: [agentgateway]
       jwks:
-        url: http://vault:8200/v1/identity/oidc/.well-known/keys
+        url: http://vault:8200/v1/identity/oidc/provider/agentgateway/.well-known/keys
       jwtValidationOptions:
         requiredClaims: [exp, iss, aud, sub]
   models:
@@ -77,6 +77,13 @@ mcp:
   prefixMode: always
   policies:
     jwtAuth: *vault-jwt
+    mcpAuthorization:
+      rules:
+        # MCP names are target-prefixed because prefixMode is always.
+        # Explicit allowlist; tools not listed here are inaccessible.
+        - allow: 'mcp.tool.name == "playground_calculate" && jwt.access == "tools:calculate"'
+        - allow: 'mcp.tool.name == "playground_text_stats" && jwt.access == "tools:text-stats"'
+        - allow: 'mcp.tool.name == "playground_reverse_text" && jwt.access == "tools:reverse-text"'
   targets:
     - name: playground
       mcp:
@@ -92,6 +99,9 @@ routes:
           pathPrefix: /agents/calculator
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:calculator"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
@@ -102,6 +112,9 @@ routes:
           pathPrefix: /agents/text-analyst
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:text-analyst"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
@@ -113,6 +126,9 @@ routes:
           pathPrefix: /agents/text-transformer
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:text-transformer"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
@@ -124,6 +140,9 @@ routes:
           pathPrefix: /agents/research
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:research"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
@@ -134,6 +153,9 @@ routes:
           pathPrefix: /agents/data-analyst
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:data-analyst"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080
@@ -144,6 +166,9 @@ routes:
           pathPrefix: /agents/issue-triage
     policies:
       jwtAuth: *vault-jwt
+      authorization:
+        rules:
+          - allow: 'jwt.access == "agents:issue-triage"'
       a2a: {}
     backends:
       - host: demo-tools-agents:8080

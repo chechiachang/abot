@@ -37,14 +37,47 @@ sh scripts/check-models.sh systemone-request.json  # optional custom request
 
 ## Tools, MCP, and agents
 
-MCP at `http://localhost:4000/mcp` exposes `playground_calculate` (arithmetic), `playground_text_stats` (counts), and `playground_reverse_text` (Unicode text reversal). A2A agents at `/agents/calculator`, `/agents/text-analyst`, and `/agents/text-transformer` accept text via `message/send`; cards are at each agent's `/.well-known/agent-card.json`. All require `Authorization: Bearer $JWT`. These deterministic examples use no model quota.
+MCP at `http://localhost:4000/mcp` exposes `playground_calculate` (arithmetic), `playground_text_stats` (counts), and `playground_reverse_text` (Unicode text reversal). A2A agents at `/agents/calculator`, `/agents/text-analyst`, and `/agents/text-transformer` accept text via `message/send`; cards are at each agent's `/.well-known/agent-card.json`. These deterministic examples use no model quota.
+
+### Least-privilege access
+
+Agentgateway validates the short-lived Vault JWT's issuer, `agentgateway` audience, expiry, and subject before route authorization. The Vault OIDC role limits interactive login to the configured GitHub username (Dex also enforces org membership). Route-level CEL allow rules are allowlists: each A2A card and message route requires its exact `jwt.access` value; an otherwise valid JWT with no matching access claim is denied. MCP has separate per-tool allow rules for `playground_calculate`, `playground_text_stats`, and `playground_reverse_text`; tools without an explicit match are not listed/usable. Possessing a token for one tool/agent does not authorize any other route. The UI/model token policy remains separate; model routes retain strict JWT validation, while the UI continues using its OIDC session restriction.
+
+Vault's `agentgateway-access` OIDC scope places the operator-controlled `identity.entity.metadata.agentgateway_access` value into the signed `access` claim. The demo OIDC login can mint signed tokens, but its Vault policy grants no entity-metadata, key, role, provider, or scope write capability. Set the metadata only through a trusted Vault operator. Use separate Vault entities per identity and assign exactly one value from this table:
+
+| Identity | `agentgateway_access` value | Allowed route |
+|---|---|---|
+| Tool caller | `tools:calculate` | only `playground_calculate` |
+| Tool caller | `tools:text-stats` | only `playground_text_stats` |
+| Tool caller | `tools:reverse-text` | only `playground_reverse_text` |
+| Agent caller | `agents:calculator` | only `/agents/calculator` (card + message) |
+| Agent caller | `agents:text-analyst` | only `/agents/text-analyst` |
+| Agent caller | `agents:text-transformer` | only `/agents/text-transformer` |
+| Agent caller | `agents:research` | only `/agents/research` |
+| Agent caller | `agents:data-analyst` | only `/agents/data-analyst` |
+| Agent caller | `agents:issue-triage` | only `/agents/issue-triage` |
+| Deny test identity | unset or any unmatched value, e.g. `none` | no tools or agent routes |
+
+The existing local demo's GitHub-bound Vault identity is intentionally not given a tool/agent grant. For a real deployment, provision individual Vault entities and OIDC aliases under operator control (or use an established IdP that emits the same `access` claim), and decide grants from an authenticated administrative process. The helper creates isolated demonstration entities and prints their IDs; set entity metadata only with an operator token, then map/login as that entity:
+
+```sh
+# Safe local setup: run only with your private .env value in the environment.
+export VAULT_TOKEN="$(grep '^VAULT_DEV_ROOT_TOKEN_ID=' .env | cut -d= -f2-)"
+scripts/mint-demo-identities.sh  # records entity IDs; does not grant caller write access
+# Operator-only example for one entity ID; repeat with the exact value above:
+vault write identity/entity/id/ENTITY_ID metadata=agentgateway_access=agents:calculator
+eval "$(make login)"  # Vault JWT with the configured GitHub user's bound identity
+eval "$(make jwt)"    # short-lived ID token; keep it in shell memory only
+```
+
+For isolated allowed/denied smoke tests, run the script with environment variables `JWT_TOOL_CALCULATE`, `JWT_TOOL_STATS`, `JWT_TOOL_REVERSE`, one `JWT_AGENT_<NAME>` per agent, and `JWT_NO_ACCESS` set to valid Vault JWTs minted from the corresponding separately provisioned entities. Do not put JWTs in `.env`, command history, screenshots, or logs. It tests each allowed tool/agent, cross-tool and no-grant denial, missing/invalid tokens for MCP, cards and A2A messages, and valid-but-ungranted access. `JWT` remains optional for unrelated model/UI smoke checks. See [config](config/agentgateway.yaml.example) and [Vault bootstrap](scripts/vault-init.sh) for the exact claim and policy wiring.
 
 Existing setups: merge the `mcp` and `routes` sections from [the gateway template](config/agentgateway.yaml.example) into `config/agentgateway.yaml`. `make setup` preserves existing configs.
 
 ```sh
 docker compose up -d --build
 eval "$(make login)"
-python3 scripts/check-examples.py  # auth, MCP discovery/calls, all agents
+python3 scripts/check-examples.py  # requires the route-specific test JWT_* variables above
 ```
 
 ## Codex

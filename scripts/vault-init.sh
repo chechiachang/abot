@@ -16,6 +16,13 @@ for name in "$GITHUB_ORG" "$GITHUB_USER"; do
 done
 
 vault policy write agentgateway /demo/vault-agentgateway-policy.hcl
+# Authenticated demo users can generate signed JWTs from their already-bound
+# Vault identity; they receive no configuration or entity-metadata write grant.
+vault policy write agentgateway-login - <<'EOF'
+path "identity/oidc/token/agentgateway-access" {
+  capabilities = ["read"]
+}
+EOF
 
 # Safe to rerun while the dev Vault is still running.
 if ! vault auth list -format=json | grep -q '"oidc/"'; then
@@ -48,16 +55,24 @@ vault write auth/oidc/role/agentgateway - <<EOF
     "http://localhost:8250/oidc/callback",
     "http://localhost:8200/ui/vault/auth/oidc/oidc/callback"
   ],
-  "token_policies": ["agentgateway"],
+  "token_policies": ["agentgateway-login"],
   "token_ttl": "1h",
   "token_max_ttl": "1h",
   "token_no_default_policy": true
 }
 EOF
 
+# Vault scopes become claims in ID tokens minted by this OIDC provider.
+# Keep these access values in lockstep with Agentgateway CEL allow rules.
 vault write identity/oidc/key/agentgateway \
   algorithm=RS256 allowed_client_ids=agentgateway
 vault write identity/oidc/role/agentgateway \
   key=agentgateway client_id=agentgateway ttl=1h
+vault write identity/oidc/scope/agentgateway-access \
+  template='{"access":"{{identity.entity.metadata.agentgateway_access}}"}'
+vault write identity/oidc/provider/agentgateway \
+  issuer="http://localhost:8200/v1/identity/oidc/provider/agentgateway" \
+  allowed_client_ids=agentgateway \
+  scopes_supported="openid,agentgateway-access"
 
 echo 'Vault browser OIDC auth and agentgateway JWT issuance configured.'
