@@ -19,6 +19,9 @@ instructions:
   soul_file: SOUL.md
 log:
   level: info
+runtime:
+  # Maximum duration for one agent run, including coordinator and coding sub-agent work.
+  turn_timeout: 20m
 logfire:
   endpoint: https://logfire-api.pydantic.dev/v1/traces
 telegram:

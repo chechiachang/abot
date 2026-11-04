@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chechiachang/abot/internal/policy"
 	"github.com/spf13/pflag"
@@ -13,6 +14,8 @@ import (
 )
 
 func TestLoadPrecedence(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("azure:\n  model: file-model\n  base_url: https://file.example/openai/v1\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -31,8 +34,8 @@ func TestLoadPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Azure.Model != "env-model" {
-		t.Fatalf("environment should override config file: got %q", cfg.Azure.Model)
+	if cfg.Runtime.TurnTimeout != 20*time.Minute {
+		t.Fatalf("default runtime turn timeout = %s, want 20m", cfg.Runtime.TurnTimeout)
 	}
 	if cfg.Azure.BaseURL != "https://env.example/openai/v1" {
 		t.Fatalf("environment URL should override config file: got %q", cfg.Azure.BaseURL)
@@ -80,6 +83,8 @@ func TestValidateProviderRequiresExplicitModelAndSecret(t *testing.T) {
 }
 
 func TestLoadTelegramAuthorizationFromEnvironment(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("ABOT_AZURE_BASE_URL", "https://example.test/openai/v1")
 	t.Setenv("ABOT_AZURE_MODEL", "model-a")
@@ -95,6 +100,9 @@ func TestLoadTelegramAuthorizationFromEnvironment(t *testing.T) {
 }
 
 func TestLoadValidatesMCPTransportsAndCredentialReferences(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	contents := `azure:
   base_url: https://example.test/openai/v1

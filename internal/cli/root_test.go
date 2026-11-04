@@ -9,6 +9,8 @@ import (
 )
 
 func TestAzureFlagOverridesNestedConfig(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("azure:\n  base_url: https://file.example/openai/v1\n  model: file-model\n"), 0600); err != nil {
@@ -23,6 +25,8 @@ func TestAzureFlagOverridesNestedConfig(t *testing.T) {
 }
 
 func TestPolicyExportReviewApplyAndAudit(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	contents := "azure:\n  base_url: https://example.test/openai/v1\n  model: model-a\ntelegram:\n  allowed_user_ids: [10]\n  default_group_id: -100\ncapabilities:\n  global:\n    models: [model-a]\n    tools: [read]\n  defaults:\n    model: model-a\n    tools: [read]\n"
@@ -57,9 +61,11 @@ func TestPolicyExportReviewApplyAndAudit(t *testing.T) {
 }
 
 func TestProviderInspectionMapsReasoningFlagWithoutExposingKey(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	t.Setenv("AZURE_OPENAI_API_KEY", "provider-secret")
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	contents := "azure:\n  base_url: https://example.test/openai/v1\n  model: model-a\ncapabilities:\n  global:\n    thinking_levels: [none]\n  defaults:\n    model: model-a\n"
+	contents := "azure:\n  base_url: https://example.test/openai/v1\n  model: model-a\ncapabilities:\n  global:\n    models: [model-a]\n    thinking_levels: [none]\n  defaults:\n    model: model-a\n"
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
 	}

@@ -238,7 +238,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("instructions.system_file", "SYSTEM.md")
 	v.SetDefault("instructions.soul_file", "SOUL.md")
 	v.SetDefault("log.level", "info")
-	v.SetDefault("runtime.turn_timeout", 10*time.Minute)
+	v.SetDefault("runtime.turn_timeout", 20*time.Minute)
 	if path, err := defaultConfigPath(); err == nil {
 		v.SetDefault("policy_file", filepath.Join(filepath.Dir(path), "policy.json"))
 		v.SetDefault("audit_file", filepath.Join(filepath.Dir(path), "audit.jsonl"))
