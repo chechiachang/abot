@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/adk/agent"
+	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
@@ -105,7 +106,7 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		return Result{}, err
 	}
 	defer finishTurnContext()
-	turnCtx, cancel := context.WithTimeout(turnCtx, e.Config.Runtime.TurnTimeout)
+	turnCtx, cancel := context.WithTimeout(turnCtx, min(e.Config.Runtime.TurnTimeout, 20*time.Minute))
 	defer cancel()
 
 	currentPolicy, err := e.policy()
@@ -272,7 +273,36 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		}
 		coordinatorTools = append(coordinatorTools, urlTool)
 	}
-	root, err := workflow.NewRootWithCoordinatorTools(llm, instruction, tools, coordinatorTools)
+	coordinatorModel := llm
+	if selection.Model != currentPolicy.Defaults.Model || selection.ThinkingLevel != currentPolicy.Defaults.ThinkingLevel {
+		coordinatorModel, err = azureopenai.NewModel(azureopenai.Config{
+			BaseURL: e.Config.Azure.BaseURL, APIKey: e.Config.Azure.APIKey, Model: currentPolicy.Defaults.Model,
+			ReasoningEffort: currentPolicy.Defaults.ThinkingLevel, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout, Logger: e.Logger,
+		})
+		if err != nil {
+			return failed("coordinator_model_setup_error", err, "")
+		}
+	}
+	models := make(map[string]model.LLM, len(currentPolicy.Global.Models))
+	for _, approved := range currentPolicy.Global.Models {
+		if approved == selection.Model {
+			models[approved] = llm
+			continue
+		}
+		modelEffort := currentPolicy.Defaults.ThinkingLevel
+		if levels := currentPolicy.ThinkingLevels(approved); len(levels) > 0 {
+			modelEffort = levels[0]
+		}
+		approvedModel, modelErr := azureopenai.NewModel(azureopenai.Config{
+			BaseURL: e.Config.Azure.BaseURL, APIKey: e.Config.Azure.APIKey, Model: approved,
+			ReasoningEffort: modelEffort, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout, Logger: e.Logger,
+		})
+		if modelErr != nil {
+			return failed("coding_model_setup_error", modelErr, "")
+		}
+		models[approved] = approvedModel
+	}
+	root, err := workflow.NewRootWithApprovedModels(coordinatorModel, llm, models, instruction, tools, coordinatorTools)
 	if err != nil {
 		return failed("agent_setup_error", err, "")
 	}

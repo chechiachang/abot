@@ -16,13 +16,15 @@ import (
 )
 
 func TestStateInspectorReadsSQLiteAndRedactsRawDetails(t *testing.T) {
+	t.Setenv("ABOT_R2_ACCESS_KEY_ID", "")
+	t.Setenv("ABOT_R2_SECRET_ACCESS_KEY", "")
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.sqlite")
 	store, err := agentruntime.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := store.Sessions().Create(context.Background(), &session.CreateRequest{AppName: "abot", UserID: "user-1", SessionID: "chat-1"})
+	created, err := store.Sessions().Create(context.Background(), &session.CreateRequest{AppName: "abot", UserID: "local-user", SessionID: "chat-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +53,7 @@ func TestStateInspectorReadsSQLiteAndRedactsRawDetails(t *testing.T) {
 	cmd := NewRootCmd()
 	var output bytes.Buffer
 	cmd.SetOut(&output)
-	cmd.SetArgs([]string{"--config", configPath, "state", "events", "chat-1", "--user-id", "user-1", "--raw"})
+	cmd.SetArgs([]string{"--config", configPath, "state", "events", "chat-1", "--user-id", "local-user", "--raw"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
