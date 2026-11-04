@@ -3,8 +3,10 @@ package workflow
 import (
 	"context"
 	"iter"
+	"slices"
 	"testing"
 
+	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 )
 
@@ -32,10 +34,44 @@ func TestNewRootWithModelsAssignsSeparateAgentModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	children := root.SubAgents()
-	if len(children) != 1 || children[0].Name() != "coding_agent" {
-		t.Fatalf("coordinator sub-agents = %v, want coding_agent", children)
+	if children := root.SubAgents(); len(children) != 0 {
+		t.Fatalf("coordinator exposes sub-agents %v; coding must be tool-only", children)
 	}
+	base, err := llmagent.New(llmagent.Config{Name: "coding_agent", Model: codingModel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation := &codingAgentTool{base: base, models: map[string]model.LLM{codingModel.Name(): codingModel}}
+	if delegation.models[codingModel.Name()] != codingModel {
+		t.Fatal("coding model not configured on delegation tool")
+	}
+}
+
+func TestCodingAgentToolPacksItsApprovedModelDeclaration(t *testing.T) {
+	base, err := llmagent.New(llmagent.Config{Name: "coding_agent", Model: stubModel{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation := &codingAgentTool{base: base, models: map[string]model.LLM{"approved": stubModel{}}}
+	req := &model.LLMRequest{}
+	if err := delegation.ProcessRequest(nil, req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Tools[delegation.Name()] != delegation {
+		t.Fatal("request did not register the checked delegation wrapper")
+	}
+	for _, packed := range req.Config.Tools {
+		for _, declaration := range packed.FunctionDeclarations {
+			if declaration.Name != delegation.Name() {
+				continue
+			}
+			if got := declaration.Parameters.Properties["model"].Enum; len(got) != 1 || !slices.Contains(got, "approved") {
+				t.Fatalf("model enum = %v, want [approved]", got)
+			}
+			return
+		}
+	}
+	t.Fatal("request omitted coding-agent declaration")
 }
 
 type namedStubModel struct{}

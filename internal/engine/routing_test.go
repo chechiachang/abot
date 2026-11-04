@@ -64,6 +64,19 @@ func TestRouteDecisionUsesMicrosoftSystemOneProtocolAndParsesAnswer(t *testing.T
 	}
 }
 
+func TestApprovedModelEffortUsesOnlySupportedDeclaredLevels(t *testing.T) {
+	p := policy.Policy{
+		Global:              policy.Capabilities{Models: []string{"no-effort", "valid"}, ThinkingLevels: []string{"unsupported", "high"}},
+		ModelThinkingLevels: map[string][]string{"no-effort": {}, "valid": {"unsupported", "high"}},
+	}
+	if got := approvedModelEffort(p, "no-effort"); got != "" {
+		t.Fatalf("empty model declaration inherited effort %q", got)
+	}
+	if got := approvedModelEffort(p, "valid"); got != "high" {
+		t.Fatalf("approved model effort = %q, want high", got)
+	}
+}
+
 func TestRouteSelectionUsesSharedEffortsAndMultipleDeployments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request systemOneRequest

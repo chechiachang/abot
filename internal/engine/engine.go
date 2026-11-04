@@ -273,26 +273,13 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		}
 		coordinatorTools = append(coordinatorTools, urlTool)
 	}
-	coordinatorModel := llm
-	if selection.Model != currentPolicy.Defaults.Model || selection.ThinkingLevel != currentPolicy.Defaults.ThinkingLevel {
-		coordinatorModel, err = azureopenai.NewModel(azureopenai.Config{
-			BaseURL: e.Config.Azure.BaseURL, APIKey: e.Config.Azure.APIKey, Model: currentPolicy.Defaults.Model,
-			ReasoningEffort: currentPolicy.Defaults.ThinkingLevel, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout, Logger: e.Logger,
-		})
-		if err != nil {
-			return failed("coordinator_model_setup_error", err, "")
-		}
-	}
 	models := make(map[string]model.LLM, len(currentPolicy.Global.Models))
 	for _, approved := range currentPolicy.Global.Models {
 		if approved == selection.Model {
 			models[approved] = llm
 			continue
 		}
-		modelEffort := currentPolicy.Defaults.ThinkingLevel
-		if levels := currentPolicy.ThinkingLevels(approved); len(levels) > 0 {
-			modelEffort = levels[0]
-		}
+		modelEffort := approvedModelEffort(currentPolicy, approved)
 		approvedModel, modelErr := azureopenai.NewModel(azureopenai.Config{
 			BaseURL: e.Config.Azure.BaseURL, APIKey: e.Config.Azure.APIKey, Model: approved,
 			ReasoningEffort: modelEffort, MaxRetries: e.Config.Azure.MaxRetries, Timeout: e.Config.Azure.Timeout, Logger: e.Logger,
@@ -302,7 +289,7 @@ func (e *Engine) runWithMedia(parent context.Context, chatID string, numericChat
 		}
 		models[approved] = approvedModel
 	}
-	root, err := workflow.NewRootWithApprovedModels(coordinatorModel, llm, models, instruction, tools, coordinatorTools)
+	root, err := workflow.NewRootWithApprovedModels(llm, llm, models, instruction, tools, coordinatorTools)
 	if err != nil {
 		return failed("agent_setup_error", err, "")
 	}
@@ -461,6 +448,15 @@ func (e *Engine) routeSelection(ctx context.Context, prompt string, p policy.Pol
 		e.Config.SystemOne.APIKey, e.Config.SystemOne.Model, prompt, candidates,
 		routingChoice{Model: fallback.Model, Effort: fallback.ThinkingLevel}, e.Config.SystemOne.MinConfidence)
 	return choice, selected
+}
+
+func approvedModelEffort(p policy.Policy, name string) string {
+	for _, effort := range p.ThinkingLevels(name) {
+		if supportedAzureReasoningEffort(effort) {
+			return effort
+		}
+	}
+	return ""
 }
 
 func supportedAzureReasoningEffort(effort string) bool {
